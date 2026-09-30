@@ -1,0 +1,138 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // =========================================================================
+    // HELPER FUNCTIONS & ROLE DEFINITIONS
+    // =========================================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    // Role: super_admin (Full System Owner)
+    function isSuperAdmin() {
+      return isAuthenticated() && 
+        getUserData().role == 'super_admin' && 
+        getUserData().is_archived != true && 
+        getUserData().status != 'inactive';
+    }
+
+    // Role: admin (Store Administrator or Super Admin)
+    function isAdmin() {
+      return isAuthenticated() && 
+        (getUserData().role == 'admin' || isSuperAdmin()) && 
+        getUserData().is_archived != true && 
+        getUserData().status != 'inactive';
+    }
+
+    // Role: staff (Counter Staff, Admin, or Super Admin)
+    function isStaff() {
+      return isAuthenticated() && 
+        (getUserData().role == 'staff' || isAdmin()) && 
+        getUserData().is_archived != true && 
+        getUserData().status != 'inactive';
+    }
+
+    // Helper: Validates that a user updating their own profile document
+    // can modify safe fields ('name', 'username', 'avatar_url', 'password', 'previous_password', 'password_updated_at', 'updated_at')
+    // and CANNOT change uid, email, role, status, is_archived, warehouse_id, or created_at.
+    function isSelfSafeProfileUpdate(userId) {
+      return isAuthenticated() &&
+        request.auth.uid == userId &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'username', 'avatar_url', 'password', 'previous_password', 'password_updated_at', 'updated_at']) &&
+        request.resource.data.role == resource.data.role &&
+        request.resource.data.get('status', 'active') == resource.data.get('status', 'active') &&
+        request.resource.data.get('is_archived', false) == resource.data.get('is_archived', false) &&
+        request.resource.data.get('email', '') == resource.data.get('email', '') &&
+        request.resource.data.get('uid', userId) == resource.data.get('uid', userId) &&
+        request.resource.data.get('warehouse_id', '') == resource.data.get('warehouse_id', '');
+    }
+
+    // Default: Block all unauthenticated or unmapped collection operations
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // =========================================================================
+    // 1. USERS COLLECTION
+    // =========================================================================
+    match /users/{userId} {
+      // Allow reading user profiles for username login lookup and staff display
+      allow read: if true;
+      // Super admin can create any role; admin can only create 'staff' role
+      allow create: if isSuperAdmin() || (isAdmin() && request.resource.data.role == 'staff');
+      // Super admin can delete any; admin can delete/archive only staff accounts
+      allow delete: if isSuperAdmin() || (isAdmin() && resource.data.role == 'staff');
+      // Super admin can update any; admin can update staff accounts without escalating role; staff can update own display profile
+      allow update: if isSuperAdmin() || 
+        (isAdmin() && resource.data.role == 'staff' && request.resource.data.role == 'staff') || 
+        isSelfSafeProfileUpdate(userId);
+    }
+
+    // =========================================================================
+    // 2. PRODUCTS & CATEGORIES
+    // =========================================================================
+    // Read by Staff for POS menu & barcode scanning; Created/edited only by Admin / Super Admin
+    match /products/{productId} {
+      allow read: if isStaff();
+      allow write: if isAdmin();
+    }
+    match /categories/{categoryId} {
+      allow read: if isStaff();
+      allow write: if isAdmin();
+    }
+
+    // =========================================================================
+    // 3. STOCKS & INVENTORY BATCHES (Trusted-Staff Model)
+    // =========================================================================
+    match /stocks/{stockId} {
+      allow read: if isStaff();
+      allow create, update: if isStaff(); // Required for client-side POS transactions
+      allow delete: if isAdmin();
+    }
+
+    // =========================================================================
+    // 4. SALE INVOICES
+    // =========================================================================
+    match /sale_invoices/{invoiceId} {
+      // Allow read & create by staff for POS counter and receipts
+      allow read, create: if isStaff();
+      allow update, delete: if isAdmin(); // Only Admin/SuperAdmin can cancel, refund, or delete
+    }
+
+    // =========================================================================
+    // 5. STOCK MOVEMENTS (Audit Logs)
+    // =========================================================================
+    match /stock_movements/{movementId} {
+      allow read, create: if isStaff(); // Required for POS stock deduction logging & history
+      allow update, delete: if isAdmin();
+    }
+
+    // =========================================================================
+    // 6. STORE SETTINGS & BARCODE COUNTERS
+    // =========================================================================
+    match /settings/{docId} {
+      allow read: if isStaff(); // Read store name & KHR exchange rate
+      allow write: if isSuperAdmin();
+    }
+    match /counters/{counterId} {
+      allow read: if isStaff();
+      allow write: if isStaff();
+    }
+
+    // =========================================================================
+    // 7. WAREHOUSES & LOCATIONS
+    // =========================================================================
+    match /warehouses/{warehouseId} {
+      allow read: if isStaff(); // Staff & Admin read to resolve warehouse info
+      allow write: if isSuperAdmin(); // ONLY super_admin can create, edit, or archive warehouses
+    }
+  }
+}
+
+
