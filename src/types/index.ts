@@ -5,7 +5,27 @@
 export type Role = 'super_admin' | 'admin' | 'staff';
 
 
-export type PaymentMethod = 'cash' | 'aba' | 'acleda' | 'aclida' | 'other' | 'wing';
+export type PaymentMethod = 'cash' | 'aba' | 'acleda' | 'aclida' | 'other' | 'wing' | 'bank_transfer' | 'card' | 'qr';
+
+export interface CashPayment {
+  method: "cash";
+  exchangeRate: number;
+
+  invoiceTotalUsd: number;
+  invoiceTotalKhr: number;
+
+  paidUsd: number;
+  paidKhr: number;
+  totalReceivedUsd: number;
+  totalReceivedKhr: number;
+
+  remainingUsd: number;
+  remainingKhr: number;
+
+  changeUsd: number;
+  changeKhr: number;
+  changeCurrency: "USD" | "KHR" | null;
+}
 
 export type StockMovementType = 'stock_in' | 'stock_out' | 'adjustment' | 'return' | 'transfer' | 'purchase_void';
 
@@ -115,6 +135,8 @@ export interface SaleInvoice {
   total_price: number;
   status: InvoiceStatus;
   payment_method: PaymentMethod;
+  cash_payment?: CashPayment;
+  cashPayment?: CashPayment;
   exchange_rate_khr?: number;
   created_by: string;
   created_by_name?: string;

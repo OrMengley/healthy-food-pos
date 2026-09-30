@@ -17,9 +17,10 @@ import {
   MoneyReceiveSquareIcon,
   ChartIncreaseIcon,
   Dollar01Icon,
+  UserGroupIcon,
 } from "hugeicons-react";
 
-import { NavMain } from "@/components/nav-main";
+import { NavMain, NavItem } from "@/components/nav-main";
 import { NavUser } from "@/components/nav-user";
 import { auth } from "@/lib/firebase/config";
 import { signOut } from "firebase/auth";
@@ -37,7 +38,7 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
 
-const superAdminNavItems = [
+const superAdminNavItems: NavItem[] = [
   {
     title: "Dashboard",
     url: "/",
@@ -54,19 +55,22 @@ const superAdminNavItems = [
     icon: MoneyReceiveSquareIcon,
   },
   {
-    title: "Sale Detail",
-    url: "/sales/details",
-    icon: Invoice01Icon,
-  },
-  {
-    title: "Sale Summary",
-    url: "/reports/sale-summary",
+    title: "Sale Reports",
     icon: ChartIncreaseIcon,
-  },
-  {
-    title: "Sale by Category",
-    url: "/reports/sale-by-category",
-    icon: GridViewIcon,
+    items: [
+      {
+        title: "Sale Detail",
+        url: "/sales/details",
+      },
+      {
+        title: "Sale Summary",
+        url: "/reports/sale-summary",
+      },
+      {
+        title: "Sale by Category",
+        url: "/reports/sale-by-category",
+      },
+    ],
   },
   {
     title: "Profit & Loss",
@@ -111,7 +115,7 @@ const superAdminNavItems = [
   {
     title: "Staff & Users",
     url: "/users",
-    icon: Store01Icon,
+    icon: UserGroupIcon,
   },
   {
     title: "Store Settings",
@@ -120,7 +124,7 @@ const superAdminNavItems = [
   },
 ];
 
-const adminNavItems = [
+const adminNavItems: NavItem[] = [
   {
     title: "Dashboard",
     url: "/",
@@ -137,19 +141,22 @@ const adminNavItems = [
     icon: MoneyReceiveSquareIcon,
   },
   {
-    title: "Sale Detail",
-    url: "/sales/details",
-    icon: Invoice01Icon,
-  },
-  {
-    title: "Sale Summary",
-    url: "/reports/sale-summary",
+    title: "Sale Reports",
     icon: ChartIncreaseIcon,
-  },
-  {
-    title: "Sale by Category",
-    url: "/reports/sale-by-category",
-    icon: GridViewIcon,
+    items: [
+      {
+        title: "Sale Detail",
+        url: "/sales/details",
+      },
+      {
+        title: "Sale Summary",
+        url: "/reports/sale-summary",
+      },
+      {
+        title: "Sale by Category",
+        url: "/reports/sale-by-category",
+      },
+    ],
   },
   {
     title: "Profit & Loss",
@@ -189,11 +196,11 @@ const adminNavItems = [
   {
     title: "Staff & Users",
     url: "/users",
-    icon: Store01Icon,
+    icon: UserGroupIcon,
   },
 ];
 
-const staffNavItems = [
+const staffNavItems: NavItem[] = [
   {
     title: "POS Counter",
     url: "/pos",
@@ -205,19 +212,22 @@ const staffNavItems = [
     icon: MoneyReceiveSquareIcon,
   },
   {
-    title: "Sale Detail",
-    url: "/sales/details",
-    icon: Invoice01Icon,
-  },
-  {
-    title: "Sale Summary",
-    url: "/reports/sale-summary",
+    title: "Sale Reports",
     icon: ChartIncreaseIcon,
-  },
-  {
-    title: "Sale by Category",
-    url: "/reports/sale-by-category",
-    icon: GridViewIcon,
+    items: [
+      {
+        title: "Sale Detail",
+        url: "/sales/details",
+      },
+      {
+        title: "Sale Summary",
+        url: "/reports/sale-summary",
+      },
+      {
+        title: "Sale by Category",
+        url: "/reports/sale-by-category",
+      },
+    ],
   },
   {
     title: "Profit & Loss",

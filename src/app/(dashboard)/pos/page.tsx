@@ -78,6 +78,7 @@ import {
   PaymentMethod,
   ProductWithStock,
   Customer,
+  CashPayment,
 } from "@/types";
 import { getOptimizedImageUrl, formatCambodiaDate } from "@/lib/utils";
 import { ReceiptModal } from "@/components/pos/ReceiptModal";
@@ -111,6 +112,11 @@ export default function POSPage() {
   // Payment Modal State
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cash");
+  const [posExchangeRate, setPosExchangeRate] = useState<number>(4000);
+  const [paidUsd, setPaidUsd] = useState<number | "">("");
+  const [paidKhr, setPaidKhr] = useState<number | "">("");
+  const [changeCurrency, setChangeCurrency] = useState<"USD" | "KHR">("KHR");
+  const [userSelectedChangeCurrency, setUserSelectedChangeCurrency] = useState<boolean>(false);
   const [customerType, setCustomerType] = useState<"walk_in" | "online">("walk_in");
   const [customerName, setCustomerName] = useState<string>("Walk-in Customer");
   const [customerPhone, setCustomerPhone] = useState<string>("");
@@ -175,6 +181,9 @@ export default function POSPage() {
       setCategories(cats);
       setInvoices(visibleInvoices);
       setSettings(storeConfig);
+      if (storeConfig.exchange_rate_khr) {
+        setPosExchangeRate(storeConfig.exchange_rate_khr);
+      }
     } catch (error) {
       console.error(error);
       toast.error("Failed to load POS catalog");
@@ -323,7 +332,40 @@ export default function POSPage() {
 
   const totalDiscount = Number(orderDiscount) || 0;
   const grandTotalUsd = Math.max(0, subtotal - totalDiscount);
-  const grandTotalKhr = Math.round(grandTotalUsd * (settings.exchange_rate_khr || 4100));
+
+  // Dynamic Exchange Rate & Cash Calculations
+  const currentExchangeRate = Number(posExchangeRate) > 0 ? Number(posExchangeRate) : (settings.exchange_rate_khr || 4000);
+  const grandTotalKhr = Math.round(grandTotalUsd * currentExchangeRate);
+
+  const numPaidUsd = typeof paidUsd === "number" ? Math.max(0, paidUsd) : 0;
+  const numPaidKhr = typeof paidKhr === "number" ? Math.max(0, paidKhr) : 0;
+
+  const paidKhrInUsd = currentExchangeRate > 0 ? numPaidKhr / currentExchangeRate : 0;
+  const totalReceivedUsd = numPaidUsd + paidKhrInUsd;
+  const totalReceivedKhr = Math.round(totalReceivedUsd * currentExchangeRate);
+
+  const rawRemainingUsd = grandTotalUsd - totalReceivedUsd;
+  const isPaidInFull = rawRemainingUsd <= 0.005;
+  const remainingUsd = isPaidInFull ? 0 : rawRemainingUsd;
+  const remainingKhr = isPaidInFull ? 0 : Math.round((rawRemainingUsd * currentExchangeRate) / 100) * 100;
+
+  const rawChangeUsd = totalReceivedUsd - grandTotalUsd;
+  const hasChange = rawChangeUsd > 0.005;
+  const changeUsd = hasChange ? rawChangeUsd : 0;
+  const changeKhr = hasChange ? Math.round((rawChangeUsd * currentExchangeRate) / 100) * 100 : 0;
+
+  // Auto-default change currency if user hasn't manually chosen
+  useEffect(() => {
+    if (!userSelectedChangeCurrency && paymentModalOpen) {
+      if (numPaidKhr > 0 && numPaidUsd === 0) {
+        setChangeCurrency("KHR");
+      } else if (numPaidUsd > 0 && numPaidKhr === 0) {
+        setChangeCurrency("USD");
+      } else if (numPaidUsd > 0 && numPaidKhr > 0) {
+        setChangeCurrency("KHR");
+      }
+    }
+  }, [numPaidUsd, numPaidKhr, userSelectedChangeCurrency, paymentModalOpen]);
 
   // Product Filter
   const filteredProducts = useMemo(() => {
@@ -352,7 +394,41 @@ export default function POSPage() {
     if (!customerName.trim()) {
       setCustomerName(customerType === "online" ? "Online Customer" : "Walk-in Customer");
     }
+    const activeRate = settings.exchange_rate_khr || 4000;
+    setPosExchangeRate(activeRate);
+    setPaidUsd("");
+    setPaidKhr("");
+    setUserSelectedChangeCurrency(false);
     setPaymentModalOpen(true);
+  };
+
+  // Quick Preset Helpers
+  const setExactUsd = () => {
+    setPaidUsd(Number(grandTotalUsd.toFixed(2)));
+    setPaidKhr("");
+    setUserSelectedChangeCurrency(false);
+  };
+
+  const setExactKhr = () => {
+    setPaidKhr(grandTotalKhr);
+    setPaidUsd("");
+    setUserSelectedChangeCurrency(false);
+  };
+
+  const handleAddUsd = (amount: number) => {
+    const current = typeof paidUsd === "number" ? paidUsd : 0;
+    setPaidUsd(Number((current + amount).toFixed(2)));
+  };
+
+  const handleAddKhr = (amount: number) => {
+    const current = typeof paidKhr === "number" ? paidKhr : 0;
+    setPaidKhr(current + amount);
+  };
+
+  const handleClearPaid = () => {
+    setPaidUsd("");
+    setPaidKhr("");
+    setUserSelectedChangeCurrency(false);
   };
 
   // Switch customer type with smart defaults
@@ -381,6 +457,11 @@ export default function POSPage() {
 
   const handleConfirmCheckout = async () => {
     try {
+      if (paymentMethod === "cash" && !isPaidInFull) {
+        toast.error(`Customer still owes $${remainingUsd.toFixed(2)} (${remainingKhr.toLocaleString()} ៛)`);
+        return;
+      }
+
       setSubmittingSale(true);
 
       const items = cart.map((item) => ({
@@ -393,11 +474,31 @@ export default function POSPage() {
       const finalCustomerName = customerName.trim() || (customerType === "online" ? "Online Customer" : "Walk-in Customer");
       const targetWarehouseId = user?.warehouse_id || "main";
 
+      const cashPaymentData: CashPayment | undefined =
+        paymentMethod === "cash"
+          ? {
+              method: "cash",
+              exchangeRate: currentExchangeRate,
+              invoiceTotalUsd: grandTotalUsd,
+              invoiceTotalKhr: grandTotalKhr,
+              paidUsd: numPaidUsd,
+              paidKhr: numPaidKhr,
+              totalReceivedUsd: totalReceivedUsd,
+              totalReceivedKhr: totalReceivedKhr,
+              remainingUsd: remainingUsd,
+              remainingKhr: remainingKhr,
+              changeUsd: changeUsd,
+              changeKhr: changeKhr,
+              changeCurrency: hasChange ? changeCurrency : null,
+            }
+          : undefined;
+
       const { invoiceId, invoiceNumber } = await createSale({
         items,
         discount: totalDiscount,
         payment_method: paymentMethod,
-        exchange_rate_khr: settings.exchange_rate_khr || 4100,
+        cash_payment: cashPaymentData,
+        exchange_rate_khr: currentExchangeRate,
         warehouse_id: targetWarehouseId,
         created_by: user?.id || "Staff",
         created_by_name: user?.name || "Staff",
@@ -433,7 +534,8 @@ export default function POSPage() {
         total_price: grandTotalUsd,
         status: "paid",
         payment_method: paymentMethod,
-        exchange_rate_khr: settings.exchange_rate_khr || 4100,
+        cash_payment: cashPaymentData,
+        exchange_rate_khr: currentExchangeRate,
         created_by: user?.id || "Staff",
         created_by_name: user?.name || "Staff",
         created_at: new Date(),
@@ -450,6 +552,9 @@ export default function POSPage() {
       setSelectedCustomerId("");
       setCustomerType("walk_in");
       setPaymentModalOpen(false);
+      setPaidUsd("");
+      setPaidKhr("");
+      setUserSelectedChangeCurrency(false);
 
       // Reload products to reflect deducted stock
       loadData();
@@ -1044,8 +1149,8 @@ export default function POSPage() {
 
       {/* Payment Confirmation Modal */}
       <Dialog open={paymentModalOpen} onOpenChange={setPaymentModalOpen}>
-        <DialogContent className="sm:max-w-[480px] p-0 overflow-hidden border border-border/80 bg-background shadow-2xl rounded-2xl">
-          <DialogHeader className="p-5 pb-3 border-b bg-gradient-to-r from-primary/10 via-primary/5 to-transparent">
+        <DialogContent className="w-[95vw] sm:max-w-[880px] p-0 overflow-hidden border border-border/80 bg-background shadow-2xl rounded-2xl">
+          <DialogHeader className="p-4 sm:p-5 pb-3 border-b bg-gradient-to-r from-primary/10 via-primary/5 to-transparent">
             <DialogTitle className="flex items-center gap-2 font-black text-lg text-foreground">
               <div className="p-1.5 rounded-xl bg-primary/10 text-primary">
                 <Cash01Icon className="size-5 text-primary" />
@@ -1054,192 +1159,458 @@ export default function POSPage() {
             </DialogTitle>
           </DialogHeader>
 
-          <div className="p-5 space-y-4 max-h-[calc(85vh-8rem)] overflow-y-auto">
-            {/* Amount Summary Card */}
-            <div className="p-4 rounded-2xl bg-gradient-to-br from-primary/15 via-primary/5 to-transparent border border-primary/25 text-center space-y-1">
-              <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
-                Total Amount Due
-              </p>
-              <p className="text-3xl font-black text-primary font-mono tabular-nums">
-                ${grandTotalUsd.toFixed(2)}
-              </p>
-              <p className="text-sm font-black text-foreground font-mono">
-                ≈ {grandTotalKhr.toLocaleString()} ៛ KHR
-              </p>
-            </div>
+          <div className="p-4 sm:p-6 max-h-[calc(88vh-8rem)] overflow-y-auto">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+              {/* Left Column: Invoice Total, Customer Channel & Details (5 cols on lg) */}
+              <div className="lg:col-span-5 space-y-4">
+                {/* Amount Summary Card */}
+                <div className="p-4 rounded-2xl bg-gradient-to-br from-primary/15 via-primary/5 to-transparent border border-primary/25 text-center space-y-1">
+                  <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
+                    Invoice Total Due
+                  </p>
+                  <div className="flex flex-col items-center">
+                    <span className="text-3xl sm:text-4xl font-black text-primary font-mono tabular-nums">
+                      ${grandTotalUsd.toFixed(2)}
+                    </span>
+                    <span className="text-sm font-black text-muted-foreground font-mono mt-0.5">
+                      ≈ {grandTotalKhr.toLocaleString()} ៛ KHR
+                    </span>
+                  </div>
+                </div>
 
-            {/* 1. Customer Type Selector (Walk-in vs Online) */}
-            <div className="space-y-2">
-              <Label className="text-xs font-bold text-foreground uppercase tracking-wider flex items-center gap-1.5">
-                <UserIcon className="size-3.5 text-primary" />
-                <span>Customer / Order Channel <span className="text-destructive">*</span></span>
-              </Label>
-              <div className="grid grid-cols-2 gap-2.5">
-                <Button
-                  type="button"
-                  variant={customerType === "walk_in" ? "default" : "outline"}
-                  onClick={() => handleCustomerTypeChange("walk_in")}
-                  className={`h-12 flex items-center justify-start gap-2.5 rounded-xl font-bold text-xs ${
-                    customerType === "walk_in"
-                      ? "bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs border-emerald-600"
-                      : "border-border/80 hover:bg-muted"
-                  }`}
-                >
-                  <div className={`p-1.5 rounded-lg ${customerType === "walk_in" ? "bg-white/20" : "bg-muted"}`}>
-                    <Store01Icon className="size-4" />
-                  </div>
-                  <div className="text-left">
-                    <div className="font-bold text-xs">Walk-in Customer</div>
-                    <div className={`text-[10px] font-normal ${customerType === "walk_in" ? "text-emerald-100" : "text-muted-foreground"}`}>
-                      In-store pos purchase
-                    </div>
-                  </div>
-                </Button>
-
-                <Button
-                  type="button"
-                  variant={customerType === "online" ? "default" : "outline"}
-                  onClick={() => handleCustomerTypeChange("online")}
-                  className={`h-12 flex items-center justify-start gap-2.5 rounded-xl font-bold text-xs ${
-                    customerType === "online"
-                      ? "bg-blue-600 hover:bg-blue-700 text-white shadow-xs border-blue-600"
-                      : "border-border/80 hover:bg-muted"
-                  }`}
-                >
-                  <div className={`p-1.5 rounded-lg ${customerType === "online" ? "bg-white/20" : "bg-muted"}`}>
-                    <Globe02Icon className="size-4" />
-                  </div>
-                  <div className="text-left">
-                    <div className="font-bold text-xs">Online / Delivery</div>
-                    <div className={`text-[10px] font-normal ${customerType === "online" ? "text-blue-100" : "text-muted-foreground"}`}>
-                      Grab, Telegram, Social
-                    </div>
-                  </div>
-                </Button>
-              </div>
-            </div>
-
-            {/* Quick Online Channels Selector if Online is chosen */}
-            {customerType === "online" && (
-              <div className="space-y-1.5 p-3 rounded-xl bg-blue-500/10 border border-blue-500/20">
-                <span className="text-[10px] font-bold text-blue-900 dark:text-blue-300 uppercase block">
-                  Quick Online Channel:
-                </span>
-                <div className="flex flex-wrap gap-1.5">
-                  {["Telegram", "GrabFood", "FoodPanda", "NHAM24", "Facebook", "Phone Call", "Other"].map((ch) => (
-                    <button
-                      key={ch}
+                {/* 1. Customer Type Selector (Walk-in vs Online) */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-bold text-foreground uppercase tracking-wider flex items-center gap-1.5">
+                    <UserIcon className="size-3.5 text-primary" />
+                    <span>Customer / Order Channel <span className="text-destructive">*</span></span>
+                  </Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
                       type="button"
-                      onClick={() => {
-                        setOnlinePlatform(ch);
-                        setCustomerName(`${ch} Customer`);
-                      }}
-                      className={`text-[11px] px-2.5 py-1 rounded-lg font-semibold border transition-all ${
-                        customerName.includes(ch) || onlinePlatform === ch
-                          ? "bg-blue-600 text-white border-blue-600 shadow-2xs"
-                          : "bg-background text-foreground border-border/80 hover:bg-muted"
+                      variant={customerType === "walk_in" ? "default" : "outline"}
+                      onClick={() => handleCustomerTypeChange("walk_in")}
+                      className={`h-11 flex items-center justify-start gap-2 rounded-xl font-bold text-xs ${
+                        customerType === "walk_in"
+                          ? "bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs border-emerald-600"
+                          : "border-border/80 hover:bg-muted"
                       }`}
                     >
-                      {ch}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
+                      <Store01Icon className="size-4 shrink-0" />
+                      <div className="text-left truncate">
+                        <div className="font-bold text-xs">Walk-in</div>
+                        <div className={`text-[9px] font-normal truncate ${customerType === "walk_in" ? "text-emerald-100" : "text-muted-foreground"}`}>
+                          In-store POS
+                        </div>
+                      </div>
+                    </Button>
 
-            {/* 2. Customer Name & Saved Profile Selection */}
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <Label htmlFor="cust-name" className="text-xs font-bold text-foreground">
-                  Customer Name <span className="text-destructive">*</span>
-                </Label>
-                {customers.length > 0 && (
-                  <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                    <span>Registered:</span>
-                    <select
-                      value={selectedCustomerId}
-                      onChange={(e) => handleSelectExistingCustomer(e.target.value)}
-                      className="text-[11px] bg-muted/60 border border-border/80 rounded-lg px-2 py-0.5 font-semibold text-foreground"
+                    <Button
+                      type="button"
+                      variant={customerType === "online" ? "default" : "outline"}
+                      onClick={() => handleCustomerTypeChange("online")}
+                      className={`h-11 flex items-center justify-start gap-2 rounded-xl font-bold text-xs ${
+                        customerType === "online"
+                          ? "bg-blue-600 hover:bg-blue-700 text-white shadow-xs border-blue-600"
+                          : "border-border/80 hover:bg-muted"
+                      }`}
                     >
-                      <option value="">-- Pick registered --</option>
-                      {customers.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name} {c.phone ? `(${c.phone})` : ""}
-                        </option>
+                      <Globe02Icon className="size-4 shrink-0" />
+                      <div className="text-left truncate">
+                        <div className="font-bold text-xs">Online</div>
+                        <div className={`text-[9px] font-normal truncate ${customerType === "online" ? "text-blue-100" : "text-muted-foreground"}`}>
+                          Delivery / Social
+                        </div>
+                      </div>
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Quick Online Channels Selector if Online is chosen */}
+                {customerType === "online" && (
+                  <div className="space-y-1.5 p-2.5 rounded-xl bg-blue-500/10 border border-blue-500/20">
+                    <span className="text-[10px] font-bold text-blue-900 dark:text-blue-300 uppercase block">
+                      Quick Online Channel:
+                    </span>
+                    <div className="flex flex-wrap gap-1">
+                      {["Telegram", "GrabFood", "FoodPanda", "NHAM24", "Facebook", "Other"].map((ch) => (
+                        <button
+                          key={ch}
+                          type="button"
+                          onClick={() => {
+                            setOnlinePlatform(ch);
+                            setCustomerName(`${ch} Customer`);
+                          }}
+                          className={`text-[10px] px-2 py-0.5 rounded-md font-semibold border transition-all ${
+                            customerName.includes(ch) || onlinePlatform === ch
+                              ? "bg-blue-600 text-white border-blue-600 shadow-2xs"
+                              : "bg-background text-foreground border-border/80 hover:bg-muted"
+                          }`}
+                        >
+                          {ch}
+                        </button>
                       ))}
-                    </select>
+                    </div>
                   </div>
                 )}
-              </div>
-              <div className="relative">
-                <UserIcon className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
-                <Input
-                  id="cust-name"
-                  value={customerName}
-                  onChange={(e) => {
-                    setCustomerName(e.target.value);
-                    if (selectedCustomerId) setSelectedCustomerId("");
-                  }}
-                  placeholder={customerType === "online" ? "e.g. Online Customer / Telegram" : "e.g. Walk-in Customer"}
-                  className="pl-9 h-10 bg-background text-sm rounded-xl font-medium border-border/80"
-                  required
-                />
-              </div>
-            </div>
 
-            {/* 3. Customer Phone Number (Optional) */}
-            <div className="space-y-1.5">
-              <Label htmlFor="cust-phone" className="text-xs font-bold text-foreground flex items-center justify-between">
-                <span>Customer Phone Number</span>
-                <span className="text-muted-foreground font-normal text-[11px]">(Optional)</span>
-              </Label>
-              <div className="relative">
-                <Call02Icon className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
-                <Input
-                  id="cust-phone"
-                  type="tel"
-                  value={customerPhone}
-                  onChange={(e) => setCustomerPhone(e.target.value)}
-                  placeholder="e.g. 012 345 678 (optional)"
-                  className="pl-9 h-10 bg-background text-sm font-mono rounded-xl border-border/80 font-medium"
-                />
-              </div>
-            </div>
+                {/* 2. Customer Name & Saved Profile Selection */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="cust-name" className="text-xs font-bold text-foreground">
+                      Customer Name <span className="text-destructive">*</span>
+                    </Label>
+                    {customers.length > 0 && (
+                      <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                        <span>Registered:</span>
+                        <select
+                          value={selectedCustomerId}
+                          onChange={(e) => handleSelectExistingCustomer(e.target.value)}
+                          className="text-[10px] bg-muted/60 border border-border/80 rounded-md px-1.5 py-0.5 font-semibold text-foreground max-w-[140px] truncate"
+                        >
+                          <option value="">-- Pick --</option>
+                          {customers.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                  </div>
+                  <div className="relative">
+                    <UserIcon className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
+                    <Input
+                      id="cust-name"
+                      value={customerName}
+                      onChange={(e) => {
+                        setCustomerName(e.target.value);
+                        if (selectedCustomerId) setSelectedCustomerId("");
+                      }}
+                      placeholder={customerType === "online" ? "e.g. Online Customer / Telegram" : "e.g. Walk-in Customer"}
+                      className="pl-9 h-9 bg-background text-xs rounded-xl font-medium border-border/80"
+                      required
+                    />
+                  </div>
+                </div>
 
-            {/* 4. Payment Method Selector */}
-            <div className="space-y-2 pt-1">
-              <p className="text-xs font-bold text-foreground uppercase tracking-wider">Choose Payment Method</p>
-              <div className="grid grid-cols-2 gap-2">
-                {[
-                  { id: "cash", label: "Cash (USD / ៛)", icon: Cash01Icon },
-                  { id: "aba", label: "ABA KHQR", icon: QrCodeIcon },
-                  { id: "acleda", label: "ACLEDA KHQR", icon: QrCodeIcon },
-                  { id: "other", label: "Other", icon: CreditCardIcon },
-                ].map((m) => {
-                  const Icon = m.icon;
-                  const isSelected = paymentMethod === m.id;
-                  return (
-                    <Button
-                      key={m.id}
-                      type="button"
-                      variant={isSelected ? "default" : "outline"}
-                      onClick={() => setPaymentMethod(m.id as PaymentMethod)}
-                      className={`h-11 flex items-center justify-start gap-2 rounded-xl font-bold text-xs ${
-                        isSelected
-                          ? "bg-primary text-primary-foreground shadow-xs"
-                          : "hover:bg-primary/5 hover:border-primary/40 border-border/80"
-                      }`}
-                    >
-                      <Icon className="size-4 shrink-0" />
-                      <span className="truncate">{m.label}</span>
-                    </Button>
-                  );
-                })}
+                {/* 3. Customer Phone Number (Optional) */}
+                <div className="space-y-1">
+                  <Label htmlFor="cust-phone" className="text-xs font-bold text-foreground flex items-center justify-between">
+                    <span>Customer Phone Number</span>
+                    <span className="text-muted-foreground font-normal text-[10px]">(Optional)</span>
+                  </Label>
+                  <div className="relative">
+                    <Call02Icon className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
+                    <Input
+                      id="cust-phone"
+                      type="tel"
+                      value={customerPhone}
+                      onChange={(e) => setCustomerPhone(e.target.value)}
+                      placeholder="e.g. 012 345 678"
+                      className="pl-9 h-9 bg-background text-xs font-mono rounded-xl border-border/80 font-medium"
+                    />
+                  </div>
+                </div>
+
+                {/* 4. Payment Method Selector */}
+                <div className="space-y-1.5 pt-1">
+                  <p className="text-xs font-bold text-foreground uppercase tracking-wider">Choose Payment Method</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { id: "cash", label: "Cash (USD / ៛)", icon: Cash01Icon },
+                      { id: "aba", label: "ABA KHQR", icon: QrCodeIcon },
+                      { id: "acleda", label: "ACLEDA KHQR", icon: QrCodeIcon },
+                      { id: "other", label: "Other / Card", icon: CreditCardIcon },
+                    ].map((m) => {
+                      const Icon = m.icon;
+                      const isSelected = paymentMethod === m.id;
+                      return (
+                        <Button
+                          key={m.id}
+                          type="button"
+                          variant={isSelected ? "default" : "outline"}
+                          onClick={() => setPaymentMethod(m.id as PaymentMethod)}
+                          className={`h-10 flex items-center justify-start gap-2 rounded-xl font-bold text-xs ${
+                            isSelected
+                              ? "bg-primary text-primary-foreground shadow-xs"
+                              : "hover:bg-primary/5 hover:border-primary/40 border-border/80"
+                          }`}
+                        >
+                          <Icon className="size-4 shrink-0" />
+                          <span className="truncate">{m.label}</span>
+                        </Button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {/* Right Column: Cash Calculations or Non-cash overview (7 cols on lg) */}
+              <div className="lg:col-span-7 flex flex-col justify-between space-y-3.5">
+                {paymentMethod === "cash" ? (
+                  <div className="space-y-3.5 p-3.5 sm:p-4 rounded-2xl bg-muted/40 border border-border/80 h-full flex flex-col justify-between">
+                    <div className="space-y-3.5">
+                      {/* Exchange Rate Setting */}
+                      <div className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-background border border-border/60">
+                        <div className="flex items-center gap-1.5 text-xs font-bold text-foreground">
+                          <span className="text-muted-foreground uppercase text-[10px] tracking-wider">Exchange Rate:</span>
+                          <span>1 USD =</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <div className="relative w-28">
+                            <Input
+                              type="number"
+                              min="1"
+                              step="10"
+                              value={posExchangeRate}
+                              onChange={(e) => setPosExchangeRate(Math.max(1, parseFloat(e.target.value) || 0))}
+                              className="h-7 text-right font-mono font-bold text-xs pr-6"
+                            />
+                            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[11px] font-bold text-muted-foreground pointer-events-none">
+                              ៛
+                            </span>
+                          </div>
+                          {settings.exchange_rate_khr && posExchangeRate !== settings.exchange_rate_khr && (
+                            <button
+                              type="button"
+                              onClick={() => setPosExchangeRate(settings.exchange_rate_khr)}
+                              className="text-[10px] text-primary hover:underline font-semibold"
+                              title="Reset to default store exchange rate"
+                            >
+                              Reset
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Customer Paid Inputs */}
+                      <div className="space-y-2">
+                        <div className="flex flex-wrap items-center justify-between gap-1">
+                          <Label className="text-xs font-bold text-foreground uppercase tracking-wider flex items-center gap-1">
+                            <Cash01Icon className="size-3.5 text-primary" />
+                            <span>Customer Paid Amount</span>
+                          </Label>
+                          {/* Quick Fast Presets */}
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={setExactUsd}
+                              className="text-[10px] px-2 py-0.5 rounded-md bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 font-bold border border-emerald-500/20 transition-all"
+                            >
+                              Exact ${grandTotalUsd.toFixed(2)}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={setExactKhr}
+                              className="text-[10px] px-2 py-0.5 rounded-md bg-blue-500/10 hover:bg-blue-500/20 text-blue-800 dark:text-blue-300 font-bold border border-blue-500/20 transition-all"
+                            >
+                              Exact {grandTotalKhr.toLocaleString()}៛
+                            </button>
+                            {(numPaidUsd > 0 || numPaidKhr > 0) && (
+                              <button
+                                type="button"
+                                onClick={handleClearPaid}
+                                className="text-[10px] px-1.5 py-0.5 rounded-md text-destructive hover:bg-destructive/10 font-bold transition-all"
+                              >
+                                Clear
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2.5">
+                          {/* Paid USD */}
+                          <div className="space-y-1.5 p-2.5 rounded-xl bg-background border border-border/80">
+                            <div className="flex justify-between items-center text-[11px] font-bold text-foreground">
+                              <span>Paid USD ($)</span>
+                              <span className="text-muted-foreground font-mono text-[10px]">${numPaidUsd.toFixed(2)}</span>
+                            </div>
+                            <div className="relative">
+                              <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-sm font-bold text-muted-foreground pointer-events-none">$</span>
+                              <Input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                placeholder="0.00"
+                                value={paidUsd}
+                                onChange={(e) => setPaidUsd(e.target.value === "" ? "" : Math.max(0, parseFloat(e.target.value) || 0))}
+                                className="pl-6 h-9 font-mono font-bold text-base bg-muted/20"
+                              />
+                            </div>
+                            {/* USD Quick Chips */}
+                            <div className="flex flex-wrap gap-1 pt-0.5">
+                              {[1, 5, 10, 20, 50, 100].map((amt) => (
+                                <button
+                                  key={amt}
+                                  type="button"
+                                  onClick={() => handleAddUsd(amt)}
+                                  className="text-[10px] px-1.5 py-0.5 rounded bg-muted/60 hover:bg-primary hover:text-primary-foreground font-mono font-bold transition-colors border border-border/60"
+                                >
+                                  +${amt}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Paid KHR */}
+                          <div className="space-y-1.5 p-2.5 rounded-xl bg-background border border-border/80">
+                            <div className="flex justify-between items-center text-[11px] font-bold text-foreground">
+                              <span>Paid KHR (៛)</span>
+                              <span className="text-muted-foreground font-mono text-[10px]">{numPaidKhr.toLocaleString()} ៛</span>
+                            </div>
+                            <div className="relative">
+                              <Input
+                                type="number"
+                                min="0"
+                                step="100"
+                                placeholder="0"
+                                value={paidKhr}
+                                onChange={(e) => setPaidKhr(e.target.value === "" ? "" : Math.max(0, parseFloat(e.target.value) || 0))}
+                                className="pr-6 h-9 font-mono font-bold text-base bg-muted/20 text-right"
+                              />
+                              <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-sm font-bold text-muted-foreground pointer-events-none">៛</span>
+                            </div>
+                            {/* KHR Quick Chips */}
+                            <div className="flex flex-wrap gap-1 pt-0.5 justify-end">
+                              {[5000, 10000, 20000, 50000, 100000].map((amt) => (
+                                <button
+                                  key={amt}
+                                  type="button"
+                                  onClick={() => handleAddKhr(amt)}
+                                  className="text-[10px] px-1.5 py-0.5 rounded bg-muted/60 hover:bg-primary hover:text-primary-foreground font-mono font-bold transition-colors border border-border/60"
+                                >
+                                  +{amt >= 1000 ? `${amt / 1000}K` : amt}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Payment Summary Box */}
+                      <div className="p-3 rounded-xl bg-background border border-border/80 space-y-2 text-xs">
+                        <div className="flex justify-between items-center text-muted-foreground">
+                          <span className="font-semibold">Total Received:</span>
+                          <span className="font-mono font-bold text-foreground">
+                            ${totalReceivedUsd.toFixed(2)} (≈ {totalReceivedKhr.toLocaleString()} ៛)
+                          </span>
+                        </div>
+
+                        {!isPaidInFull ? (
+                          <div className="flex justify-between items-center p-2 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-700 dark:text-rose-300 font-bold">
+                            <span className="flex items-center gap-1 text-[11px]">
+                              <span>Remaining Balance:</span>
+                            </span>
+                            <span className="font-mono text-sm">
+                              ${remainingUsd.toFixed(2)} / {remainingKhr.toLocaleString()} ៛
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="space-y-1.5">
+                            <div className="flex justify-between items-center text-emerald-700 dark:text-emerald-400 font-bold">
+                              <span>Remaining:</span>
+                              <span className="font-mono">$0.00 / 0 ៛ (Paid in full)</span>
+                            </div>
+                            <div className="flex justify-between items-center font-bold text-foreground pt-1 border-t border-border/60">
+                              <span>Change:</span>
+                              <span className="font-mono text-primary font-black">
+                                ${changeUsd.toFixed(2)} / {changeKhr.toLocaleString()} ៛
+                              </span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Change Currency Selector (Only when change is due) */}
+                      {hasChange && (
+                        <div className="space-y-2 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-bold text-emerald-950 dark:text-emerald-200 uppercase tracking-wider">
+                              Select Change Currency:
+                            </span>
+                            <div className="flex items-center gap-1">
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant={changeCurrency === "KHR" ? "default" : "outline"}
+                                onClick={() => {
+                                  setChangeCurrency("KHR");
+                                  setUserSelectedChangeCurrency(true);
+                                }}
+                                className={`h-7 px-2.5 text-xs font-bold rounded-lg ${
+                                  changeCurrency === "KHR"
+                                    ? "bg-emerald-600 text-white hover:bg-emerald-700 shadow-2xs"
+                                    : "bg-background hover:bg-muted"
+                                }`}
+                              >
+                                ៛ KHR (Riel)
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant={changeCurrency === "USD" ? "default" : "outline"}
+                                onClick={() => {
+                                  setChangeCurrency("USD");
+                                  setUserSelectedChangeCurrency(true);
+                                }}
+                                className={`h-7 px-2.5 text-xs font-bold rounded-lg ${
+                                  changeCurrency === "USD"
+                                    ? "bg-emerald-600 text-white hover:bg-emerald-700 shadow-2xs"
+                                    : "bg-background hover:bg-muted"
+                                }`}
+                              >
+                                $ USD (Dollar)
+                              </Button>
+                            </div>
+                          </div>
+
+                          {/* Prominent Change Callout */}
+                          <div className="p-2.5 rounded-lg bg-emerald-600 text-white text-center shadow-xs space-y-0.5">
+                            <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-100">
+                              Change to give customer
+                            </div>
+                            <div className="text-2xl font-black font-mono tracking-tight">
+                              {changeCurrency === "KHR" ? `${changeKhr.toLocaleString()} ៛` : `$${changeUsd.toFixed(2)}`}
+                            </div>
+                            <div className="text-[10px] text-emerald-100 font-mono">
+                              {changeCurrency === "KHR" ? `(≈ $${changeUsd.toFixed(2)} USD)` : `(≈ ${changeKhr.toLocaleString()} ៛ KHR)`}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="h-full min-h-[280px] flex flex-col items-center justify-center p-6 rounded-2xl bg-muted/20 border border-dashed border-border/80 text-center space-y-3">
+                    <div className="p-3.5 rounded-2xl bg-primary/10 text-primary">
+                      {paymentMethod === "aba" || paymentMethod === "acleda" ? (
+                        <QrCodeIcon className="size-10" />
+                      ) : (
+                        <CreditCardIcon className="size-10" />
+                      )}
+                    </div>
+                    <div className="space-y-1">
+                      <h3 className="font-bold text-sm text-foreground uppercase tracking-wide">
+                        {paymentMethod === "aba"
+                          ? "ABA KHQR Payment"
+                          : paymentMethod === "acleda"
+                          ? "ACLEDA KHQR Payment"
+                          : "Digital / Card Payment"}
+                      </h3>
+                      <p className="text-xs text-muted-foreground max-w-xs">
+                        Scan QR code with customer banking app to collect ${grandTotalUsd.toFixed(2)} ({grandTotalKhr.toLocaleString()} ៛).
+                      </p>
+                    </div>
+                    <Badge variant="outline" className="text-xs font-mono font-bold px-3 py-1 bg-background">
+                      Amount: ${grandTotalUsd.toFixed(2)} USD
+                    </Badge>
+                  </div>
+                )}
               </div>
             </div>
           </div>
 
-          <DialogFooter className="p-4 border-t bg-muted/20 gap-2 sm:gap-0">
+          <DialogFooter className="p-4 border-t bg-muted/20 gap-2 sm:gap-0 flex-row items-center justify-between">
             <Button
               variant="outline"
               type="button"
@@ -1250,15 +1621,21 @@ export default function POSPage() {
             </Button>
             <Button
               type="button"
-              disabled={submittingSale}
+              disabled={submittingSale || (paymentMethod === "cash" && !isPaidInFull)}
               onClick={handleConfirmCheckout}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl gap-2 shadow-xs"
+              className={`font-bold text-xs rounded-xl gap-2 shadow-xs ${
+                paymentMethod === "cash" && !isPaidInFull
+                  ? "bg-muted text-muted-foreground cursor-not-allowed border"
+                  : "bg-emerald-600 hover:bg-emerald-700 text-white"
+              }`}
             >
               {submittingSale ? (
                 <>
                   <Loading01Icon className="size-4 animate-spin" />
                   <span>Recording Sale...</span>
                 </>
+              ) : paymentMethod === "cash" && !isPaidInFull ? (
+                <span>Awaiting Full Payment (${remainingUsd.toFixed(2)} left)</span>
               ) : (
                 <>
                   <CheckmarkCircle01Icon className="size-4" />

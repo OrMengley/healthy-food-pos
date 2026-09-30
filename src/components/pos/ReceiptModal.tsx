@@ -11,8 +11,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { PrinterIcon, CheckmarkCircle01Icon } from "hugeicons-react";
-import { format } from "date-fns";
+import { PrinterIcon, CheckmarkCircle01Icon, Cash01Icon } from "hugeicons-react";
 import { formatCambodiaDate } from "@/lib/utils";
 import { Separator } from "@/components/ui/separator";
 
@@ -33,11 +32,23 @@ export function ReceiptModal({ invoice, open, onOpenChange }: ReceiptModalProps)
 
   if (!invoice) return null;
 
-  const rate = invoice.exchange_rate_khr || settings.exchange_rate_khr || 4100;
+  const cash = invoice.cash_payment || invoice.cashPayment;
+  const isCash = invoice.payment_method === "cash" || !!cash;
+  const rate = cash?.exchangeRate || invoice.exchange_rate_khr || settings.exchange_rate_khr || 4000;
+
   const totalUsd = Number(invoice.total_price || 0).toFixed(2);
   const totalKhr = Math.round(Number(invoice.total_price || 0) * rate).toLocaleString();
   const subTotalUsd = Number(invoice.sub_total || 0).toFixed(2);
   const discountUsd = Number(invoice.discount || 0).toFixed(2);
+
+  const paidUsdStr = cash ? `$${Number(cash.paidUsd || 0).toFixed(2)}` : `$${totalUsd}`;
+  const paidKhrStr = cash ? `${Number(cash.paidKhr || 0).toLocaleString()} ៛` : `0 ៛`;
+  const changeStr =
+    cash && cash.changeUsd > 0
+      ? cash.changeCurrency === "USD"
+        ? `$${Number(cash.changeUsd || 0).toFixed(2)} (${Number(cash.changeKhr || 0).toLocaleString()} ៛)`
+        : `${Number(cash.changeKhr || 0).toLocaleString()} ៛ ($${Number(cash.changeUsd || 0).toFixed(2)})`
+      : "0 ៛";
 
   const handlePrint = () => {
     const printWindow = window.open("", "_blank");
@@ -58,6 +69,30 @@ export function ReceiptModal({ invoice, open, onOpenChange }: ReceiptModalProps)
       `
       )
       .join("");
+
+    const cashBreakdownHtml = isCash
+      ? `
+      <div class="divider"></div>
+      <div style="font-size: 10px; padding: 2px 0; color: #333;">
+        <div class="totals-row">
+          <span>Paid USD:</span>
+          <strong>${paidUsdStr}</strong>
+        </div>
+        <div class="totals-row">
+          <span>Paid KHR:</span>
+          <strong>${paidKhrStr}</strong>
+        </div>
+        <div class="totals-row">
+          <span>Exchange Rate:</span>
+          <span>1 USD = ${rate.toLocaleString()} ៛</span>
+        </div>
+        <div class="totals-row" style="font-weight: bold; font-size: 11px; border-top: 1px dashed #666; padding-top: 3px; margin-top: 2px;">
+          <span>Change:</span>
+          <span>${changeStr}</span>
+        </div>
+      </div>
+    `
+      : "";
 
     printWindow.document.write(`
       <!DOCTYPE html>
@@ -181,13 +216,11 @@ export function ReceiptModal({ invoice, open, onOpenChange }: ReceiptModalProps)
             </div>
           ` : ""}
           <div class="totals-row grand-total">
-            <span>TOTAL (USD):</span>
-            <span>$${totalUsd}</span>
+            <span>TOTAL:</span>
+            <span>$${totalUsd} (${totalKhr} ៛)</span>
           </div>
-          <div class="totals-row" style="font-weight: bold; font-size: 12px;">
-            <span>TOTAL (KHR):</span>
-            <span>${totalKhr} ៛</span>
-          </div>
+
+          ${cashBreakdownHtml}
 
           <div class="footer">
             <div>${settings.receipt_footer || "Thank you for eating healthy!"}</div>
@@ -267,7 +300,7 @@ export function ReceiptModal({ invoice, open, onOpenChange }: ReceiptModalProps)
           <Separator className="border-dashed" />
 
           {/* Items */}
-          <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
+          <div className="space-y-2 max-h-[200px] overflow-y-auto pr-1">
             {invoice.items.map((item, idx) => (
               <div key={idx} className="flex justify-between items-start text-xs">
                 <div>
@@ -304,6 +337,28 @@ export function ReceiptModal({ invoice, open, onOpenChange }: ReceiptModalProps)
               <span>TOTAL (KHR):</span>
               <span>{totalKhr} ៛</span>
             </div>
+
+            {/* Cash Payment Breakdown */}
+            {isCash && (
+              <div className="mt-3 pt-2 border-t border-dashed border-neutral-300 space-y-1 bg-neutral-50 p-2.5 rounded-lg">
+                <div className="flex justify-between text-[11px] text-neutral-700">
+                  <span>Paid USD:</span>
+                  <strong className="font-mono">{paidUsdStr}</strong>
+                </div>
+                <div className="flex justify-between text-[11px] text-neutral-700">
+                  <span>Paid KHR:</span>
+                  <strong className="font-mono">{paidKhrStr}</strong>
+                </div>
+                <div className="flex justify-between text-[10px] text-neutral-500">
+                  <span>Exchange Rate:</span>
+                  <span>1 USD = {rate.toLocaleString()} ៛</span>
+                </div>
+                <div className="flex justify-between items-center text-xs font-bold text-neutral-900 pt-1 border-t border-neutral-200">
+                  <span>Change:</span>
+                  <span className="font-mono text-emerald-700">{changeStr}</span>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="text-center text-[10px] text-neutral-400 pt-2 border-t border-dashed">

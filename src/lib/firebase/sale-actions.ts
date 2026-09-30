@@ -10,7 +10,7 @@ import {
     runTransaction,
     Timestamp,
 } from "firebase/firestore";
-import { SaleInvoice, Product, Stock, PaymentMethod } from "@/types";
+import { SaleInvoice, Product, Stock, PaymentMethod, CashPayment } from "@/types";
 import { format } from "date-fns";
 import { parseFirestoreDate, formatCambodiaDate } from "@/lib/utils";
 
@@ -31,6 +31,7 @@ export interface CreateSaleInput {
     tax?: number;
     status?: 'paid' | 'not paid';
     payment_method: PaymentMethod;
+    cash_payment?: CashPayment;
     exchange_rate_khr?: number;
     created_by?: string;
     created_by_name?: string;
@@ -166,7 +167,7 @@ export async function createSale(data: CreateSaleInput) {
         // 3. Create Sale Invoice Document
         const finalTotalPrice = Math.max(0, (subTotal - discount) + tax);
         const invoiceRef = doc(collection(db, "sale_invoices"));
-        const invoiceDoc = {
+        const invoiceDoc: any = {
             invoice_number: invoiceNumber,
             customer_id: data.customer_id || "",
             customer_name: customerName,
@@ -186,6 +187,11 @@ export async function createSale(data: CreateSaleInput) {
             created_at: serverTimestamp(),
             is_archived: false,
         };
+
+        if (data.payment_method === "cash" && data.cash_payment) {
+            invoiceDoc.cash_payment = data.cash_payment;
+        }
+
         transaction.set(invoiceRef, invoiceDoc);
 
         return { invoiceId: invoiceRef.id };
@@ -213,6 +219,7 @@ export async function getSaleInvoices(): Promise<SaleInvoice[]> {
                 customer_phone: data.customer_phone || "",
                 warehouse_id: data.warehouse_id || "main",
                 ...data,
+                cash_payment: data.cash_payment || data.cashPayment || undefined,
                 invoice_number: data.invoice_number || `INV-${d.id.slice(0, 8).toUpperCase()}`,
                 created_at: parseFirestoreDate(data.created_at),
             } as SaleInvoice;
