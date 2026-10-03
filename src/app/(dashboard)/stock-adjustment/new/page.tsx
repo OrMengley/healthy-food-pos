@@ -56,7 +56,7 @@ import {
   Exchange01Icon,
   GridViewIcon,
 } from "hugeicons-react";
-import { formatCambodiaDate } from "@/lib/utils";
+import { formatCambodiaDate, getOptimizedImageUrl } from "@/lib/utils";
 
 const ADJUSTMENT_REASONS: AdjustmentReason[] = [
   "Damaged",
@@ -315,7 +315,7 @@ export default function CreateStockAdjustmentPage() {
                           <div className="size-20 rounded-xl bg-background border flex items-center justify-center shrink-0 overflow-hidden relative shadow-2xs">
                             {selectedProduct.thumbnails?.[0] || selectedProduct.images?.[0] ? (
                               <Image
-                                src={selectedProduct.thumbnails?.[0] || selectedProduct.images?.[0]}
+                                src={getOptimizedImageUrl(selectedProduct.thumbnails?.[0] || selectedProduct.images?.[0], 150, 150)}
                                 alt={selectedProduct.name}
                                 fill
                                 className="object-cover"
@@ -703,7 +703,7 @@ export default function CreateStockAdjustmentPage() {
                       <div className="size-12 rounded-lg bg-slate-100 border flex items-center justify-center shrink-0 overflow-hidden relative">
                         {thumbnail ? (
                           <Image
-                            src={thumbnail}
+                            src={getOptimizedImageUrl(thumbnail, 150, 150)}
                             alt={p.name}
                             fill
                             className="object-cover"

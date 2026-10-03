@@ -723,7 +723,7 @@ export default function POSPage() {
                         <div className="relative aspect-4/3 w-full bg-muted/40 overflow-hidden flex items-center justify-center border-b">
                           {product.thumbnails?.[0] || product.images?.[0] ? (
                             <Image
-                              src={getOptimizedImageUrl(product.thumbnails?.[0] || product.images?.[0], 300)}
+                              src={getOptimizedImageUrl(product.thumbnails?.[0] || product.images?.[0], 250, 250)}
                               alt={product.name}
                               fill
                               className="object-cover group-hover:scale-105 transition-transform"

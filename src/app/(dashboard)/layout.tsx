@@ -13,23 +13,6 @@ import { useAuth } from "@/hooks/useAuth"
 // Pages accessible by staff role
 const STAFF_ALLOWED_PATHS = [
   "/pos",
-  "/sales",
-  "/sales/details",
-  "/sale",
-  "/sale-detail",
-  "/sales-detail",
-  "/sale-by-category",
-  "/sales-by-category",
-  "/profit-loss",
-  "/reports/profit-loss",
-  "/reports/sale-summary",
-  "/reports/sales-summary",
-  "/reports/sale-detail",
-  "/reports/sale-by-category",
-  "/reports/sales-by-category",
-  "/stock-adjustment",
-  "/stock-adjustment/new",
-  "/stock-adjustment/create",
 ];
 
 // Pages accessible only by super_admin

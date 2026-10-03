@@ -19,6 +19,7 @@ import {
 } from "hugeicons-react";
 import { Product } from "@/types";
 import Image from "next/image";
+import { getOptimizedImageUrl } from "@/lib/utils";
 
 interface ProductSelectModalProps {
   open: boolean;
@@ -122,7 +123,7 @@ export function ProductSelectModal({
                     <div className="h-12 w-12 rounded-lg bg-slate-100 border border-slate-200/80 flex items-center justify-center shrink-0 overflow-hidden relative">
                       {thumbnail ? (
                         <Image
-                          src={thumbnail}
+                          src={getOptimizedImageUrl(thumbnail, 150, 150)}
                           alt={p.name}
                           fill
                           className="object-cover"

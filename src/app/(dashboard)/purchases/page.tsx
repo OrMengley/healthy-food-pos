@@ -1360,7 +1360,7 @@ export default function PurchasesPage() {
                                   <div className="relative size-10 rounded-xl overflow-hidden border bg-muted shrink-0 flex items-center justify-center">
                                     {item.product_image ? (
                                       <Image
-                                        src={getOptimizedImageUrl(item.product_image, 80)}
+                                        src={getOptimizedImageUrl(item.product_image, 150, 150)}
                                         alt={item.product_name || "Product"}
                                         fill
                                         className="object-cover"

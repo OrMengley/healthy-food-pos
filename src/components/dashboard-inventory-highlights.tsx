@@ -147,7 +147,7 @@ export function DashboardInventoryHighlights({
                     <div className="relative size-10 shrink-0 overflow-hidden rounded-md border bg-muted flex items-center justify-center">
                       {imgUrl ? (
                         <Image
-                          src={getOptimizedImageUrl(imgUrl, 100)}
+                          src={getOptimizedImageUrl(imgUrl, 150, 150)}
                           alt={p.name}
                           fill
                           className="object-cover"

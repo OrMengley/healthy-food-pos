@@ -41,7 +41,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (!authLoading && user && !loading) {
-      router.replace("/");
+      router.replace(user.role === "staff" ? "/pos" : "/");
     }
   }, [user, authLoading, router, loading]);
 
@@ -67,7 +67,7 @@ export default function LoginPage() {
       }
 
       login(loggedInUser);
-      router.push("/");
+      router.push(loggedInUser.role === "staff" ? "/pos" : "/");
     } catch (err: any) {
       console.error("Login error details:", err);
       setError(err.message || "Failed to login. Please check your credentials.");
@@ -91,7 +91,7 @@ export default function LoginPage() {
     <div className="w-full min-h-screen lg:grid lg:grid-cols-2">
       <div className="flex items-center justify-center py-12">
         <div className="mx-auto grid w-[350px] gap-6">
-            <div className="grid gap-2 text-center">
+          <div className="grid gap-2 text-center">
             <h1 className="text-3xl font-black text-primary tracking-tight">Healthy Food POS</h1>
             <p className="text-balance text-muted-foreground text-xs">
               Sign in to your counter register or admin dashboard
@@ -116,7 +116,7 @@ export default function LoginPage() {
               <Input
                 id="username"
                 type="text"
-                placeholder="super_admin, admin, or staff username"
+                placeholder=""
                 required
                 autoComplete="username"
                 value={username}
@@ -178,20 +178,33 @@ export default function LoginPage() {
           </form>
         </div>
       </div>
-      <div className="relative hidden bg-emerald-950 lg:flex items-center justify-center overflow-hidden">
+      <div className="relative hidden bg-zinc-950 lg:flex items-end justify-start overflow-hidden p-12">
         <Image
           src={loginImg}
           alt="Healthy Food POS"
           fill
           priority
-          className="object-cover opacity-60"
+          className="object-cover brightness-[0.88] hover:scale-105 transition-transform duration-1000 ease-out"
         />
-        <div className="relative z-10 flex flex-col items-center justify-center p-8 text-white bg-black/50 backdrop-blur-xs w-full h-full text-center">
-          <h1 className="text-4xl font-black tracking-wider text-emerald-400">
-            HEALTHY FOOD POS
+        <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-black/20 pointer-events-none" />
+
+        <div className="relative z-10 max-w-lg space-y-4">
+          <div className="inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-950/60 px-3.5 py-1.5 backdrop-blur-md shadow-lg shadow-black/20">
+            <span className="flex size-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-xs font-bold tracking-wider text-emerald-300 uppercase">
+              Fresh Food & Counter POS
+            </span>
+          </div>
+
+          <h1 className="text-4xl font-black tracking-tight text-white sm:text-5xl leading-tight drop-shadow-md">
+            HEALTHY FOOD <br />
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 via-teal-300 to-emerald-200">
+              POS SYSTEM
+            </span>
           </h1>
-          <p className="text-sm text-zinc-200 mt-2 font-medium max-w-sm">
-            Single-Store Counter POS & Inventory Stock Management
+
+          <p className="text-sm text-zinc-200/90 font-medium leading-relaxed drop-shadow">
+            Single-Store Counter POS, real-time sales invoicing, and complete inventory stock management tailored for healthy food stores.
           </p>
         </div>
       </div>

@@ -444,7 +444,7 @@ export default function ProductsPage() {
                           <div className="relative h-12 w-12 rounded-xl overflow-hidden border bg-muted flex items-center justify-center group-hover:scale-105 transition-transform shadow-xs">
                             {product.thumbnails && product.thumbnails.length > 0 ? (
                               <Image
-                                src={getOptimizedImageUrl(product.thumbnails[0], 100)}
+                                src={getOptimizedImageUrl(product.thumbnails[0], 150, 150)}
                                 alt={product.name}
                                 fill
                                 className="object-cover"
@@ -452,7 +452,7 @@ export default function ProductsPage() {
                               />
                             ) : product.images && product.images.length > 0 ? (
                               <Image
-                                src={getOptimizedImageUrl(product.images[0], 100)}
+                                src={getOptimizedImageUrl(product.images[0], 150, 150)}
                                 alt={product.name}
                                 fill
                                 className="object-cover"
@@ -606,7 +606,8 @@ export default function ProductsPage() {
                           (viewingProduct.images && viewingProduct.images[selectedImageIndex]) || 
                           (viewingProduct.thumbnails && viewingProduct.thumbnails[selectedImageIndex]) || 
                           "", 
-                          800
+                          500,
+                          500
                         )}
                         alt={viewingProduct.name}
                         fill

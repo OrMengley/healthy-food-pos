@@ -275,9 +275,9 @@ export default function ProductMenuPage() {
                 >
                   {/* Image */}
                   <div className="bg-blue-50/40 aspect-[4/3] relative flex items-center justify-center overflow-hidden">
-                    {p.thumbnails?.[0] ? (
+                    {p.thumbnails?.[0] || p.images?.[0] ? (
                       <Image
-                        src={getOptimizedImageUrl(p.thumbnails[0])}
+                        src={getOptimizedImageUrl(p.thumbnails?.[0] || p.images?.[0], 250, 250)}
                         alt={p.name}
                         fill
                         className="object-contain p-4 transition-transform duration-300 group-hover:scale-105"
@@ -357,9 +357,9 @@ export default function ProductMenuPage() {
                   >
                     {/* Thumbnail */}
                     <div className="h-12 w-12 rounded-lg border border-blue-100 bg-blue-50/40 flex items-center justify-center overflow-hidden shrink-0">
-                      {p.thumbnails?.[0] ? (
+                      {p.thumbnails?.[0] || p.images?.[0] ? (
                         <Image
-                          src={getOptimizedImageUrl(p.thumbnails[0], 100)}
+                          src={getOptimizedImageUrl(p.thumbnails?.[0] || p.images?.[0], 150, 150)}
                           alt={p.name}
                           width={48}
                           height={48}

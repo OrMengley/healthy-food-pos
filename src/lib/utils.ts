@@ -5,13 +5,89 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-export function getOptimizedImageUrl(url: string, width: number = 1080) {
-  if (!url || !url.includes('cloudinary.com')) return url;
-  
-  // If it already has transformations, this might be tricky, 
-  // but usually simple upload URLs look like .../upload/v123...
-  // We insert our transformation after /upload/
-  return url.replace('/upload/', `/upload/w_${width},c_limit,q_auto,f_auto/`);
+/**
+ * Transforms Cloudinary image URLs to requested dimensions and optimized formats.
+ * Safely strips any pre-existing transformation segments before injecting new ones.
+ * 
+ * @param url Cloudinary or external image URL
+ * @param width Target pixel width (defaults to 250)
+ * @param height Target pixel height (defaults to width if not specified)
+ * @param options Additional transformation options (crop, format, quality, gravity)
+ */
+export function getOptimizedImageUrl(
+  url?: string | null,
+  width: number = 250,
+  height?: number,
+  options?: {
+    crop?: "fill" | "limit" | "fit" | "thumb" | "scale" | "pad";
+    gravity?: string;
+    quality?: string | number;
+    format?: string;
+  }
+): string {
+  if (!url || typeof url !== "string") return "";
+  if (!url.includes("cloudinary.com")) return url;
+
+  const targetHeight = height ?? width;
+  const crop = options?.crop ?? "fill";
+  const quality = options?.quality ?? "auto";
+  const format = options?.format ?? "auto";
+  const gravity = options?.gravity ?? (crop === "fill" || crop === "thumb" ? "auto" : undefined);
+
+  const transformParts = [
+    `w_${width}`,
+    `h_${targetHeight}`,
+    `c_${crop}`,
+    gravity ? `g_${gravity}` : "",
+    `f_${format}`,
+    `q_${quality}`,
+  ].filter(Boolean);
+
+  const transformStr = transformParts.join(",");
+
+  const uploadMarker = "/upload/";
+  const uploadIndex = url.indexOf(uploadMarker);
+  if (uploadIndex === -1) return url;
+
+  const prefix = url.slice(0, uploadIndex + uploadMarker.length);
+  const rawSuffix = url.slice(uploadIndex + uploadMarker.length);
+
+  const cleanSuffix = cleanCloudinaryTransformations(rawSuffix);
+
+  return `${prefix}${transformStr}/${cleanSuffix}`;
+}
+
+function cleanCloudinaryTransformations(path: string): string {
+  const segments = path.split("/");
+  const cleanedSegments: string[] = [];
+  let reachedAssetOrVersion = false;
+
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i];
+    if (reachedAssetOrVersion) {
+      cleanedSegments.push(seg);
+      continue;
+    }
+
+    // Version segment e.g. "v1727850000"
+    if (/^v\d+$/.test(seg)) {
+      reachedAssetOrVersion = true;
+      cleanedSegments.push(seg);
+      continue;
+    }
+
+    // Cloudinary transformation segment e.g. "w_150,h_150,c_fill" or "c_thumb,g_auto,h_300,w_300"
+    const isTransformSegment = /^(?:(w|h|c|q|f|g|b|r|e|t|fl|dpr|co|a|o|z|x|y|ar)_[^/,]+,?)+$/i.test(seg);
+    if (isTransformSegment) {
+      continue;
+    }
+
+    // Otherwise, we have reached the folder or filename
+    reachedAssetOrVersion = true;
+    cleanedSegments.push(seg);
+  }
+
+  return cleanedSegments.join("/");
 }
 
 export function parseFirestoreDate(val: any, fallback = new Date()): Date {

@@ -633,7 +633,7 @@ export default function PurchaseStockInPage() {
                               <div className="relative size-10 rounded-xl overflow-hidden border border-border/80 bg-muted shrink-0 flex items-center justify-center shadow-2xs">
                                 {item.product_image ? (
                                   <Image
-                                    src={getOptimizedImageUrl(item.product_image, 80)}
+                                    src={getOptimizedImageUrl(item.product_image, 150, 150)}
                                     alt={item.product_name}
                                     fill
                                     className="object-cover"

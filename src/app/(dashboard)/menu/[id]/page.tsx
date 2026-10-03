@@ -144,7 +144,7 @@ export default function ProductDetailPage() {
             <div className="rounded-2xl border-2 border-blue-100 bg-gradient-to-br from-blue-50 to-indigo-50/40 overflow-hidden aspect-square relative flex items-center justify-center shadow-sm">
               {currentImage ? (
                 <Image
-                  src={getOptimizedImageUrl(currentImage, 800)}
+                  src={getOptimizedImageUrl(currentImage, 500, 500)}
                   alt={product.name}
                   fill
                   className="object-contain p-6"

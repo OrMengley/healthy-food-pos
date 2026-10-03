@@ -54,24 +54,8 @@ const superAdminNavItems: NavItem[] = [
     url: "/sales",
     icon: MoneyReceiveSquareIcon,
   },
-  {
-    title: "Sale Reports",
-    icon: ChartIncreaseIcon,
-    items: [
-      {
-        title: "Sale Detail",
-        url: "/sales/details",
-      },
-      {
-        title: "Sale Summary",
-        url: "/reports/sale-summary",
-      },
-      {
-        title: "Sale by Category",
-        url: "/reports/sale-by-category",
-      },
-    ],
-  },
+
+
   {
     title: "Profit & Loss",
     url: "/reports/profit-loss",
@@ -122,6 +106,56 @@ const superAdminNavItems: NavItem[] = [
     url: "/settings",
     icon: Settings01Icon,
   },
+  {
+    title: "Sale Reports",
+    icon: ChartIncreaseIcon,
+    items: [
+      {
+        title: "Sale Detail",
+        url: "/sales/details",
+      },
+      {
+        title: "Sale Summary",
+        url: "/reports/sale-summary",
+      },
+      {
+        title: "Sale by Category",
+        url: "/reports/sale-by-category",
+      },
+    ],
+  },
+  {
+    title: "Product Reports",
+    icon: Package01Icon,
+    items: [
+      {
+        title: "Product Report",
+        url: "/reports/products",
+      },
+      {
+        title: "Category Report",
+        url: "/reports/categories",
+      },
+      {
+        title: "Product Stock",
+        url: "/reports/product-stock",
+      },
+    ],
+  },
+  {
+    title: "Category Reports",
+    icon: GridViewIcon,
+    items: [
+      {
+        title: "Category Report",
+        url: "/reports/categories",
+      },
+      {
+        title: "Category Sales",
+        url: "/reports/sale-by-category",
+      },
+    ],
+  },
 ];
 
 const adminNavItems: NavItem[] = [
@@ -154,6 +188,38 @@ const adminNavItems: NavItem[] = [
       },
       {
         title: "Sale by Category",
+        url: "/reports/sale-by-category",
+      },
+    ],
+  },
+  {
+    title: "Product Reports",
+    icon: Package01Icon,
+    items: [
+      {
+        title: "Product Report",
+        url: "/reports/products",
+      },
+      {
+        title: "Category Report",
+        url: "/reports/categories",
+      },
+      {
+        title: "Product Stock",
+        url: "/reports/product-stock",
+      },
+    ],
+  },
+  {
+    title: "Category Reports",
+    icon: GridViewIcon,
+    items: [
+      {
+        title: "Category Report",
+        url: "/reports/categories",
+      },
+      {
+        title: "Category Sales",
         url: "/reports/sale-by-category",
       },
     ],
@@ -205,34 +271,6 @@ const staffNavItems: NavItem[] = [
     title: "POS Counter",
     url: "/pos",
     icon: ShoppingCart01Icon,
-  },
-  {
-    title: "Sales Invoices",
-    url: "/sales",
-    icon: MoneyReceiveSquareIcon,
-  },
-  {
-    title: "Sale Reports",
-    icon: ChartIncreaseIcon,
-    items: [
-      {
-        title: "Sale Detail",
-        url: "/sales/details",
-      },
-      {
-        title: "Sale Summary",
-        url: "/reports/sale-summary",
-      },
-      {
-        title: "Sale by Category",
-        url: "/reports/sale-by-category",
-      },
-    ],
-  },
-  {
-    title: "Profit & Loss",
-    url: "/reports/profit-loss",
-    icon: Dollar01Icon,
   },
 ];
 
@@ -299,18 +337,18 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   }
 
   const isStaff = role === "staff";
-  const displayedNavItems = 
-    role === "super_admin" 
-      ? superAdminNavItems 
-      : role === "admin" 
-      ? adminNavItems 
-      : staffNavItems;
-  const roleSubtitle = 
-    role === "super_admin" 
-      ? "Super Admin" 
-      : role === "admin" 
-      ? "Admin & Counter POS" 
-      : "Staff Register";
+  const displayedNavItems =
+    role === "super_admin"
+      ? superAdminNavItems
+      : role === "admin"
+        ? adminNavItems
+        : staffNavItems;
+  const roleSubtitle =
+    role === "super_admin"
+      ? "Super Admin"
+      : role === "admin"
+        ? "Admin & Counter POS"
+        : "Staff Register";
 
   return (
     <Sidebar collapsible="offcanvas" {...props}>

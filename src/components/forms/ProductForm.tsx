@@ -45,6 +45,76 @@ import Image from "next/image";
 import { buildImageUrl } from "cloudinary-build-url";
 import imageCompression from "browser-image-compression";
 import type Heic2AnyType from "heic2any";
+import { getOptimizedImageUrl } from "@/lib/utils";
+
+/**
+ * Resizes and compresses product images before upload to Cloudinary.
+ * If image pixel dimensions > 500px, it limits it to max 500x500px to save cloud storage and bandwidth.
+ */
+async function resizeProductImageForCloudinary(file: File): Promise<File> {
+  // 1. Try with browser-image-compression
+  try {
+    const compressed = await imageCompression(file, {
+      maxSizeMB: 0.3,
+      maxWidthOrHeight: 500,
+      useWebWorker: true,
+      initialQuality: 0.85,
+      fileType: "image/jpeg",
+    });
+    const outputName = file.name.replace(/\.[^/.]+$/, "") + ".jpg";
+    return new File([compressed], outputName, { type: "image/jpeg" });
+  } catch (compErr) {
+    console.warn("browser-image-compression fallback to canvas:", compErr);
+  }
+
+  // 2. Fallback using HTML5 Canvas to guarantee maximum 500px x 500px bounds
+  return new Promise<File>((resolve) => {
+    const img = new window.Image();
+    const objectUrl = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      let { width, height } = img;
+      const maxDim = 500;
+
+      if (width > maxDim || height > maxDim) {
+        if (width > height) {
+          height = Math.round((height * maxDim) / width);
+          width = maxDim;
+        } else {
+          width = Math.round((width * maxDim) / height);
+          height = maxDim;
+        }
+      }
+
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        resolve(file);
+        return;
+      }
+      ctx.drawImage(img, 0, 0, width, height);
+      canvas.toBlob(
+        (blob) => {
+          if (blob) {
+            const outputName = file.name.replace(/\.[^/.]+$/, "") + ".jpg";
+            resolve(new File([blob], outputName, { type: "image/jpeg" }));
+          } else {
+            resolve(file);
+          }
+        },
+        "image/jpeg",
+        0.85
+      );
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(file);
+    };
+    img.src = objectUrl;
+  });
+}
 
 const CLOUDINARY_CLOUD_NAME = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || "il9ikkuq";
 const UPLOAD_PRESET = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET || "ml_default"; 
@@ -207,19 +277,8 @@ export function ProductForm({
           }
         }
 
-        if (file.size > 1024 * 1024 && (!isHEIC || isConverted)) {
-          const compressionOptions = {
-            maxSizeMB: 1,
-            maxWidthOrHeight: 1200,
-            useWebWorker: true,
-          };
-          try {
-            const compressedFile = await imageCompression(file, compressionOptions);
-            file = new File([compressedFile], file.name, { type: file.type });
-          } catch (compressionError: any) {
-            console.error("Compression failed:", compressionError);
-          }
-        }
+        // Limit image to max 500px x 500px before uploading to Cloudinary
+        file = await resizeProductImageForCloudinary(file);
 
         const formData = new FormData();
         formData.append("file", file);
@@ -248,8 +307,8 @@ export function ProductForm({
           transformations: {
             resize: {
               type: "thumb",
-              width: 300,
-              height: 300,
+              width: 250,
+              height: 250,
               gravity: "auto"
             },
             format: "webp",
@@ -689,7 +748,7 @@ export function ProductForm({
                 className="relative aspect-square rounded-xl overflow-hidden border border-border/80 bg-muted/30 group shadow-xs hover:ring-2 hover:ring-primary/60 transition-all"
               >
                 <Image 
-                  src={url} 
+                  src={getOptimizedImageUrl(url, 150, 150)} 
                   alt="Product preview" 
                   fill 
                   className="object-cover" 

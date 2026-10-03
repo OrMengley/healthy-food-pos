@@ -163,7 +163,7 @@ export function SelectProductModal({
                     <div className="relative size-12 rounded-xl overflow-hidden border border-border/80 bg-muted/40 shrink-0 shadow-2xs flex items-center justify-center group-hover:scale-105 transition-transform">
                       {product.thumbnails?.[0] || product.images?.[0] ? (
                         <Image
-                          src={getOptimizedImageUrl(product.thumbnails?.[0] || product.images?.[0], 100)}
+                          src={getOptimizedImageUrl(product.thumbnails?.[0] || product.images?.[0], 150, 150)}
                           alt={product.name}
                           fill
                           className="object-cover"
