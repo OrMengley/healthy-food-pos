@@ -132,9 +132,10 @@ export default function POSPage() {
   const [historySearch, setHistorySearch] = useState("");
   const [cancellingId, setCancellingId] = useState<string | null>(null);
 
-  // Scanner Keyboard Buffer
+  // Scanner Keyboard Buffer & State Refs (Prevents Stale Closures)
   const barcodeBufferRef = useRef<string>("");
   const lastKeyTimeRef = useRef<number>(0);
+  const clearTimerRef = useRef<NodeJS.Timeout | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   const loadData = useCallback(async () => {
@@ -196,19 +197,109 @@ export default function POSPage() {
     loadData();
   }, [loadData]);
 
-  const addToCart = (product: ProductWithStock) => {
-    if (product.current_stock <= 0) {
-      toast.error(`"${product.name}" is out of stock!`);
+  const cartRef = useRef(cart);
+  useEffect(() => {
+    cartRef.current = cart;
+  }, [cart]);
+
+  const productsRef = useRef(products);
+  useEffect(() => {
+    productsRef.current = products;
+  }, [products]);
+
+  const activeTabRef = useRef(activeTab);
+  useEffect(() => {
+    activeTabRef.current = activeTab;
+  }, [activeTab]);
+
+  const modalsOpenRef = useRef(false);
+  useEffect(() => {
+    modalsOpenRef.current = paymentModalOpen || receiptModalOpen;
+  }, [paymentModalOpen, receiptModalOpen]);
+
+  // Clean Web Audio API tone generator (0 external dependencies)
+  const playBeep = useCallback((type: "success" | "error") => {
+    try {
+      if (typeof window === "undefined") return;
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      if (type === "success") {
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(1200, ctx.currentTime);
+        gain.gain.setValueAtTime(0.15, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.08);
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + 0.08);
+      } else {
+        osc.type = "sawtooth";
+        osc.frequency.setValueAtTime(220, ctx.currentTime);
+        gain.gain.setValueAtTime(0.15, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + 0.15);
+      }
+    } catch {
+      // Audio playback restrictions safely handled
+    }
+  }, []);
+
+  // Process barcode scan directly to cart with all validations
+  const handleProcessBarcodeScan = useCallback((barcode: string) => {
+    const clean = barcode.toLowerCase().trim();
+    if (!clean) return;
+
+    const currentProds = productsRef.current;
+    const currentCart = cartRef.current;
+
+    // 1. Find product by barcode or ID (including inactive to differentiate error)
+    const product = currentProds.find(
+      (p) =>
+        p.barcode?.toLowerCase().trim() === clean ||
+        p.id.toLowerCase().trim() === clean
+    );
+
+    // 2. Barcode not found
+    if (!product) {
+      playBeep("error");
+      toast.error(`Barcode not found: ${barcode}`, { duration: 2500 });
       return;
     }
 
+    // 3. Product inactive or archived
+    if (product.status === "inactive" || product.is_archived) {
+      playBeep("error");
+      toast.error(`Product "${product.name}" is unavailable`, { duration: 2500 });
+      return;
+    }
+
+    // 4. Stock validation
+    const existingInCart = currentCart.find((item) => item.product.id === product.id);
+    const currentCartQty = existingInCart ? existingInCart.quantity : 0;
+    const availableStock = Number(product.current_stock || 0);
+
+    if (availableStock <= 0) {
+      playBeep("error");
+      toast.error(`Insufficient stock for "${product.name}" (0 in stock)`, { duration: 2500 });
+      return;
+    }
+
+    if (currentCartQty >= availableStock) {
+      playBeep("error");
+      toast.error(`Insufficient stock: Only ${availableStock} available for "${product.name}"`, { duration: 2500 });
+      return;
+    }
+
+    // 5. Add / increment quantity in cart
+    const newQty = currentCartQty + 1;
     setCart((prev) => {
-      const existing = prev.find((item) => item.product.id === product.id);
-      if (existing) {
-        if (existing.quantity >= product.current_stock) {
-          toast.error(`Cannot add more. Only ${product.current_stock} in stock.`);
-          return prev;
-        }
+      const exists = prev.find((item) => item.product.id === product.id);
+      if (exists) {
         return prev.map((item) =>
           item.product.id === product.id
             ? { ...item, quantity: item.quantity + 1 }
@@ -226,44 +317,108 @@ export default function POSPage() {
         ];
       }
     });
-  };
 
-  const handleScanBarcode = (barcode: string) => {
-    const clean = barcode.toLowerCase().trim();
-    const product = products.find(
-      (p) => p.barcode?.toLowerCase().trim() === clean || p.id === clean
-    );
+    // 6. Audio & Toast feedback
+    playBeep("success");
+    toast.success(`Scanned: ${product.name} (Qty: ${newQty})`, { duration: 2000 });
+  }, [playBeep]);
 
-    if (product) {
-      addToCart(product);
-      toast.success(`Scanned: ${product.name}`, { duration: 1500 });
-    } else {
-      toast.error(`Barcode not found: ${barcode}`);
+  // Handle manual click to add product card to cart
+  const addToCart = (product: ProductWithStock) => {
+    if (product.status === "inactive" || product.is_archived) {
+      playBeep("error");
+      toast.error(`Product "${product.name}" is unavailable`);
+      return;
     }
+
+    const existing = cart.find((item) => item.product.id === product.id);
+    const currentQty = existing ? existing.quantity : 0;
+    const availableStock = Number(product.current_stock || 0);
+
+    if (availableStock <= 0) {
+      playBeep("error");
+      toast.error(`Insufficient stock for "${product.name}" (0 in stock)`);
+      return;
+    }
+
+    if (currentQty >= availableStock) {
+      playBeep("error");
+      toast.error(`Insufficient stock: Only ${availableStock} available for "${product.name}"`);
+      return;
+    }
+
+    const newQty = currentQty + 1;
+    setCart((prev) => {
+      const exists = prev.find((item) => item.product.id === product.id);
+      if (exists) {
+        return prev.map((item) =>
+          item.product.id === product.id
+            ? { ...item, quantity: item.quantity + 1 }
+            : item
+        );
+      } else {
+        return [
+          ...prev,
+          {
+            product,
+            quantity: 1,
+            price: product.price,
+            discount: 0,
+          },
+        ];
+      }
+    });
+
+    playBeep("success");
+    toast.success(`Added: ${product.name} (Qty: ${newQty})`, { duration: 1500 });
   };
 
-  // Handle Barcode Scanner hardware listener
+  // Hardware Barcode Scanner global listener on POS Counter page
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Ignore if user is currently typing in an input other than global barcode scan
+      // 1. Only listen when on POS tab and no modals are open
+      if (activeTabRef.current !== "pos" || modalsOpenRef.current) {
+        return;
+      }
+
+      // 2. Prevent conflicts: Ignore if user is typing in ANY input, textarea, select, or contenteditable
       const activeEl = document.activeElement;
-      const isInput = activeEl?.tagName === "INPUT" || activeEl?.tagName === "TEXTAREA";
-      
+      const isEditable =
+        activeEl &&
+        (activeEl.tagName === "INPUT" ||
+          activeEl.tagName === "TEXTAREA" ||
+          activeEl.tagName === "SELECT" ||
+          (activeEl as HTMLElement).isContentEditable);
+
+      if (isEditable) {
+        return;
+      }
+
       const currentTime = Date.now();
       const timeDiff = currentTime - lastKeyTimeRef.current;
       lastKeyTimeRef.current = currentTime;
 
-      // Reset buffer if key interval is too long (human typing)
-      if (timeDiff > 100) {
+      // Auto-flush stale buffer after 250ms of inactivity
+      if (clearTimerRef.current) {
+        clearTimeout(clearTimerRef.current);
+      }
+      clearTimerRef.current = setTimeout(() => {
+        barcodeBufferRef.current = "";
+      }, 250);
+
+      // Reset buffer if key interval is too long (slow typing)
+      if (timeDiff > 100 && barcodeBufferRef.current.length > 0) {
         barcodeBufferRef.current = "";
       }
 
       if (e.key === "Enter") {
         const scannedCode = barcodeBufferRef.current.trim();
-        if (scannedCode.length >= 3) {
+        barcodeBufferRef.current = "";
+        if (clearTimerRef.current) clearTimeout(clearTimerRef.current);
+
+        if (scannedCode.length >= 2) {
           e.preventDefault();
-          handleScanBarcode(scannedCode);
-          barcodeBufferRef.current = "";
+          handleProcessBarcodeScan(scannedCode);
         }
       } else if (e.key.length === 1) {
         barcodeBufferRef.current += e.key;
@@ -271,8 +426,11 @@ export default function POSPage() {
     };
 
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [products, cart]);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      if (clearTimerRef.current) clearTimeout(clearTimerRef.current);
+    };
+  }, [handleProcessBarcodeScan]);
 
 
   // Update item selling price flexibly
@@ -604,7 +762,7 @@ export default function POSPage() {
   }, [invoices, historySearch]);
 
   return (
-    <div className="flex flex-col h-[calc(100vh-4rem)] overflow-hidden">
+    <div className="flex flex-col h-[calc(100dvh-3.5rem)] min-h-0 overflow-hidden">
       {/* Top Bar with Tabs */}
       <div className="flex items-center justify-between px-4 lg:px-6 py-2.5 bg-background border-b shrink-0">
         <div className="flex items-center gap-3">
@@ -649,6 +807,24 @@ export default function POSPage() {
                   placeholder="Scan barcode (HF-...) or type product name..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      const q = searchQuery.trim();
+                      if (q) {
+                        const cleanQ = q.toLowerCase();
+                        const matchedProduct = products.find(
+                          (p) =>
+                            p.barcode?.toLowerCase().trim() === cleanQ ||
+                            p.id.toLowerCase().trim() === cleanQ
+                        );
+                        if (matchedProduct) {
+                          e.preventDefault();
+                          handleProcessBarcodeScan(q);
+                          setSearchQuery("");
+                        }
+                      }
+                    }
+                  }}
                   className="pl-9 pr-8 h-10 bg-background text-sm font-medium border-primary/20"
                 />
                 {searchQuery && (
@@ -693,7 +869,7 @@ export default function POSPage() {
             </div>
 
             {/* Product Cards Grid */}
-            <ScrollArea className="flex-1 p-3 lg:p-4">
+            <div className="flex-1 min-h-0 overflow-y-auto p-3 lg:p-4 overscroll-contain">
               {loading ? (
                 <div className="flex flex-col items-center justify-center py-20 text-muted-foreground gap-2">
                   <Loading01Icon className="animate-spin size-8 text-primary" />
@@ -778,7 +954,7 @@ export default function POSPage() {
                   })}
                 </div>
               )}
-            </ScrollArea>
+            </div>
           </div>
 
           {/* Right Column: Active Cart & Checkout */}
@@ -807,7 +983,7 @@ export default function POSPage() {
             </div>
 
             {/* Cart Items List */}
-            <ScrollArea className="flex-1 p-3">
+            <div className="flex-1 min-h-0 overflow-y-auto p-3 overscroll-contain">
               {cart.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-24 text-muted-foreground gap-3 text-center">
                   <div className="p-4 rounded-full bg-muted/60">
@@ -958,7 +1134,7 @@ export default function POSPage() {
                   })}
                 </div>
               )}
-            </ScrollArea>
+            </div>
 
             {/* Cart Footer: Totals & Checkout */}
             <div className="p-4 border-t bg-muted/20 space-y-3 shrink-0">
