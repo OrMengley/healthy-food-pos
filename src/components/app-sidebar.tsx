@@ -122,6 +122,10 @@ const superAdminNavItems: NavItem[] = [
         title: "Sale by Category",
         url: "/reports/sale-by-category",
       },
+      {
+        title: "Sale by Products",
+        url: "/reports/sale-by-products",
+      },
     ],
   },
   {
@@ -139,6 +143,10 @@ const superAdminNavItems: NavItem[] = [
       {
         title: "Product Stock",
         url: "/reports/product-stock",
+      },
+      {
+        title: "Sale by Products",
+        url: "/reports/sale-by-products",
       },
     ],
   },
@@ -190,6 +198,10 @@ const adminNavItems: NavItem[] = [
         title: "Sale by Category",
         url: "/reports/sale-by-category",
       },
+      {
+        title: "Sale by Products",
+        url: "/reports/sale-by-products",
+      },
     ],
   },
   {
@@ -207,6 +219,10 @@ const adminNavItems: NavItem[] = [
       {
         title: "Product Stock",
         url: "/reports/product-stock",
+      },
+      {
+        title: "Sale by Products",
+        url: "/reports/sale-by-products",
       },
     ],
   },

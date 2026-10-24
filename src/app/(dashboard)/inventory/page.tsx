@@ -1866,7 +1866,7 @@ export default function InventoryPage() {
 
       {/* Product Detail Dialog (Full Screen / Expansive Modal) */}
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
-        <DialogContent className="fixed inset-0 sm:inset-2 md:inset-4 lg:inset-6 !top-0 sm:!top-2 md:!top-4 lg:!top-6 !left-0 sm:!left-2 md:!left-4 lg:!left-6 !translate-x-0 !translate-y-0 !max-w-none sm:!max-w-none md:!max-w-none !w-auto !h-auto p-0 flex flex-col gap-0 rounded-none sm:rounded-2xl md:rounded-3xl overflow-hidden border border-border/80 bg-background shadow-2xl z-50 outline-none">
+        <DialogContent className="fixed inset-2 sm:inset-4 md:inset-6 lg:inset-8 !top-2 sm:!top-4 md:!top-6 lg:!top-8 !left-2 sm:!left-4 md:!left-6 lg:!left-8 !right-2 sm:!right-4 md:!right-6 lg:!right-8 !bottom-2 sm:!bottom-4 md:!bottom-6 lg:!bottom-8 !translate-x-0 !translate-y-0 !max-w-none !w-auto !h-[calc(100vh-1rem)] sm:!h-[calc(100vh-2rem)] md:!h-[calc(100vh-3rem)] lg:!h-[calc(100vh-4rem)] p-0 flex flex-col gap-0 rounded-2xl sm:rounded-3xl overflow-hidden border border-border/80 bg-background shadow-2xl z-50 outline-none">
           <DialogHeader className="p-4 sm:p-6 border-b bg-card shrink-0 flex flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-3 min-w-0">
               <div className="relative h-12 w-12 sm:h-14 sm:w-14 rounded-xl overflow-hidden border bg-muted flex items-center justify-center shrink-0">
@@ -1914,8 +1914,8 @@ export default function InventoryPage() {
           </DialogHeader>
 
           {detailProduct && (
-            <ScrollArea className="flex-1 p-4 sm:p-6">
-              <div className="space-y-6 max-w-6xl mx-auto">
+            <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 overscroll-contain">
+              <div className="space-y-6 max-w-6xl mx-auto pb-4">
                 {/* Metric Summary Cards */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
                   {/* Stock on Hand */}
@@ -2012,7 +2012,7 @@ export default function InventoryPage() {
                       </Badge>
                     </div>
 
-                    <div className="border rounded-2xl overflow-hidden bg-card divide-y">
+                    <div className="border rounded-2xl overflow-y-auto max-h-[440px] bg-card divide-y overscroll-contain shadow-2xs">
                       {stocks.filter((s) => detailProduct.product_ids.includes(s.product_id) && s.quantity > 0).length === 0 ? (
                         <div className="p-8 text-center text-muted-foreground">
                           <Package01Icon className="size-8 mx-auto mb-2 opacity-30" />
@@ -2071,7 +2071,7 @@ export default function InventoryPage() {
                       </Badge>
                     </div>
 
-                    <div className="border rounded-2xl overflow-hidden bg-card divide-y">
+                    <div className="border rounded-2xl overflow-y-auto max-h-[440px] bg-card divide-y overscroll-contain shadow-2xs">
                       {movements.filter((m) => detailProduct.product_ids.includes(m.product_id)).length === 0 ? (
                         <div className="p-8 text-center text-muted-foreground">
                           <ChartIncreaseIcon className="size-8 mx-auto mb-2 opacity-30" />
@@ -2080,7 +2080,6 @@ export default function InventoryPage() {
                       ) : (
                         movements
                           .filter((m) => detailProduct.product_ids.includes(m.product_id))
-                          .slice(0, 10)
                           .map((m) => {
                             const cfg = movementTypeConfig[m.type] || {
                               label: m.type,
@@ -2134,7 +2133,7 @@ export default function InventoryPage() {
                   </div>
                 </div>
               </div>
-            </ScrollArea>
+            </div>
           )}
         </DialogContent>
       </Dialog>
