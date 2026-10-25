@@ -35,8 +35,20 @@ import {
   FileExportIcon,
   Download04Icon,
   InformationCircleIcon,
+  Delete02Icon,
 } from "hugeicons-react";
-import { getAdjustmentMovements } from "@/lib/firebase/stock-actions";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { useAuth } from "@/hooks/useAuth";
+import { getAdjustmentMovements, deleteAdjustment } from "@/lib/firebase/stock-actions";
 import { getProducts } from "@/lib/firebase/actions";
 import { StockMovement, Product } from "@/types";
 import {
@@ -60,9 +72,12 @@ type DateFilterPreset =
   | "custom";
 
 export default function StockAdjustmentPage() {
+  const { user } = useAuth();
   const [adjustments, setAdjustments] = useState<StockMovement[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
+  const [adjustmentToDelete, setAdjustmentToDelete] = useState<StockMovement | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   // Filters
   const [searchQuery, setSearchQuery] = useState("");
@@ -92,6 +107,25 @@ export default function StockAdjustmentPage() {
       toast.error("Failed to load stock adjustment history");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleDeleteAdjustment() {
+    if (!adjustmentToDelete) return;
+    try {
+      setDeleting(true);
+      await deleteAdjustment(adjustmentToDelete.id, {
+        id: user?.id || "Admin",
+        name: user?.name || "Admin",
+      });
+      toast.success("Adjustment record deleted and stock rolled back successfully");
+      setAdjustmentToDelete(null);
+      await fetchData();
+    } catch (error: any) {
+      console.error("Failed to delete adjustment:", error);
+      toast.error(error.message || "Failed to delete adjustment record");
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -579,12 +613,13 @@ export default function StockAdjustmentPage() {
                   <TableHead className="py-3 px-4 text-center">Stock Before → After</TableHead>
                   <TableHead className="py-3 px-4">Reason & Note</TableHead>
                   <TableHead className="py-3 px-4 text-left">Adjusted By</TableHead>
+                  <TableHead className="py-3 px-4 text-center">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center h-48">
+                    <TableCell colSpan={8} className="text-center h-48">
                       <div className="flex flex-col items-center gap-2 text-muted-foreground">
                         <Loading01Icon className="animate-spin size-6 text-amber-600" />
                         <span className="text-xs font-semibold">Loading stock adjustments...</span>
@@ -593,7 +628,7 @@ export default function StockAdjustmentPage() {
                   </TableRow>
                 ) : filteredAdjustments.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center h-48 text-muted-foreground">
+                    <TableCell colSpan={8} className="text-center h-48 text-muted-foreground">
                       <div className="flex flex-col items-center justify-center gap-2 py-6">
                         <InformationCircleIcon className="size-8 text-muted-foreground/50" />
                         <p className="font-semibold text-sm">No adjustments found matching your filters.</p>
@@ -673,6 +708,20 @@ export default function StockAdjustmentPage() {
                         <td className="py-3 px-4 whitespace-nowrap text-muted-foreground font-medium">
                           {adj.created_by_name || adj.created_by || "Admin"}
                         </td>
+
+                        {/* Actions */}
+                        <td className="py-3 px-4 text-center whitespace-nowrap">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8 p-0 text-muted-foreground hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-colors"
+                            title="Delete adjustment and roll back stock"
+                            onClick={() => setAdjustmentToDelete(adj)}
+                          >
+                            <Delete02Icon className="size-4" />
+                            <span className="sr-only">Delete</span>
+                          </Button>
+                        </td>
                       </TableRow>
                     );
                   })
@@ -682,6 +731,92 @@ export default function StockAdjustmentPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* ─── Delete Confirmation Dialog ─── */}
+      <AlertDialog
+        open={!!adjustmentToDelete}
+        onOpenChange={(open) => !open && !deleting && setAdjustmentToDelete(null)}
+      >
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-rose-600">
+              <Delete02Icon className="size-5" />
+              Delete Stock Adjustment Record
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="text-xs text-muted-foreground pt-1 space-y-3">
+                <p>
+                  Are you sure you want to delete this adjustment record for{" "}
+                  <strong className="text-foreground">
+                    {productMap[adjustmentToDelete?.product_id || ""]?.name ||
+                      adjustmentToDelete?.product_name ||
+                      "this product"}
+                  </strong>
+                  ?
+                </p>
+                {adjustmentToDelete && (() => {
+                  const isUp =
+                    (adjustmentToDelete.new_stock_level ?? 0) >=
+                    (adjustmentToDelete.previous_stock_level ?? 0);
+                  return (
+                    <div className="bg-muted/40 p-3 rounded-lg border text-xs space-y-1.5 font-medium">
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Adjusted Product:</span>
+                        <span className="font-bold text-foreground">
+                          {productMap[adjustmentToDelete.product_id]?.name ||
+                            adjustmentToDelete.product_name ||
+                            "—"}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Adjustment Type:</span>
+                        <span className={`font-bold ${isUp ? "text-emerald-600" : "text-rose-600"}`}>
+                          {isUp ? "📈 Addition (+)" : "📉 Deduction (-)"}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Quantity:</span>
+                        <span className="font-bold text-foreground">{adjustmentToDelete.quantity}</span>
+                      </div>
+                      <div className="flex justify-between pt-1 border-t border-dashed">
+                        <span className="text-muted-foreground">Stock Rollback Effect:</span>
+                        <span className={`font-black ${isUp ? "text-rose-600" : "text-emerald-600"}`}>
+                          {isUp
+                            ? `Will deduct ${adjustmentToDelete.quantity} from current stock`
+                            : `Will restore ${adjustmentToDelete.quantity} back into stock`}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })()}
+                <p className="text-[11px] text-muted-foreground bg-amber-500/10 text-amber-700 dark:text-amber-400 p-2.5 rounded border border-amber-500/20">
+                  ⚠️ This action will permanently remove the record from the audit log and move the stock quantity back to its previous state.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={deleting}
+              onClick={(e) => {
+                e.preventDefault();
+                handleDeleteAdjustment();
+              }}
+              className="bg-rose-600 hover:bg-rose-700 text-white font-bold"
+            >
+              {deleting ? (
+                <>
+                  <Loading01Icon className="size-4 animate-spin mr-1.5" />
+                  Deleting & Rolling Back...
+                </>
+              ) : (
+                "Delete & Move Back Stock"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

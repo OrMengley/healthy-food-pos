@@ -295,3 +295,143 @@ export async function getAdjustmentMovements() {
     }).sort((a, b) => b.date.getTime() - a.date.getTime()) as StockMovement[];
 }
 
+/**
+ * Deletes a stock adjustment record and reverts ("moves back") the stock quantity in stocks collection.
+ * - If original adjustment was UP (stock was added):
+ *   Deducts quantity from available stocks for this product/warehouse (verifying sufficient stock).
+ * - If original adjustment was DOWN (stock was deducted):
+ *   Restores/adds quantity back to stocks for this product/warehouse.
+ * - Deletes the stock_movements record.
+ */
+export async function deleteAdjustment(
+    movementId: string,
+    userContext?: { id?: string; name?: string }
+) {
+    if (!movementId) {
+        throw new Error("Movement ID is required");
+    }
+
+    return await runTransaction(db, async (transaction) => {
+        // 1. Fetch adjustment movement record
+        const movementRef = doc(db, "stock_movements", movementId);
+        const movementSnap = await transaction.get(movementRef);
+        if (!movementSnap.exists()) {
+            throw new Error("Stock adjustment record not found.");
+        }
+
+        const movementData = movementSnap.data() as StockMovement;
+        if (movementData.type !== "adjustment") {
+            throw new Error("Only stock adjustment records can be deleted.");
+        }
+
+        const productId = movementData.product_id;
+        if (!productId) {
+            throw new Error("Adjustment record is missing a product ID.");
+        }
+
+        // 2. Fetch product info
+        const productRef = doc(db, "products", productId);
+        const productSnap = await transaction.get(productRef);
+        const productData = productSnap.exists() ? (productSnap.data() as Product) : null;
+
+        const quantityToRevert = Number(movementData.quantity || 0);
+        if (quantityToRevert <= 0) {
+            throw new Error("Invalid adjustment quantity to revert.");
+        }
+
+        // Determine if original adjustment was UP (addition) or DOWN (deduction)
+        const isUp = (movementData.new_stock_level ?? 0) > (movementData.previous_stock_level ?? 0)
+            || !!movementData.to_warehouse_id
+            || (movementData.note?.toLowerCase().includes("adjustment up") ?? false);
+
+        const warehouseId = movementData.to_warehouse_id || movementData.from_warehouse_id || "main";
+
+        if (isUp) {
+            // Original adjustment added stock.
+            // Deleting it means we must deduct quantityToRevert back from stocks!
+            const allStocksQuery = query(
+                collection(db, "stocks"),
+                where("product_id", "==", productId),
+                where("is_archived", "==", false)
+            );
+            const allStockSnaps = await getDocs(allStocksQuery);
+            const activeStocks = allStockSnaps.docs
+                .map((d) => {
+                    const sData = d.data();
+                    return {
+                        id: d.id,
+                        ...sData,
+                        quantity: Number(sData.quantity || 0),
+                        cost: Number(sData.cost || 0),
+                        warehouse_id: sData.warehouse_id || "main",
+                        date: parseFirestoreDate(sData.date || sData.created_at),
+                    } as Stock;
+                })
+                .filter((s) => s.quantity > 0);
+
+            const totalAvailable = activeStocks.reduce((sum, s) => sum + s.quantity, 0);
+            if (totalAvailable < quantityToRevert) {
+                throw new Error(
+                    `Cannot delete adjustment: insufficient stock remaining. Available on hand: ${totalAvailable}, required to deduct: ${quantityToRevert}.`
+                );
+            }
+
+            // Deduct from stocks:
+            // Prioritize warehouse where it was added, sorting newest first
+            const sameWarehouseStocks = activeStocks
+                .filter((s) => s.warehouse_id === warehouseId)
+                .sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+            const otherWarehouseStocks = activeStocks
+                .filter((s) => s.warehouse_id !== warehouseId)
+                .sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+
+            const orderedStocks = [...sameWarehouseStocks, ...otherWarehouseStocks];
+
+            let remainingToDeduct = quantityToRevert;
+            for (const stockRecord of orderedStocks) {
+                if (remainingToDeduct <= 0) break;
+                const takeQty = Math.min(stockRecord.quantity, remainingToDeduct);
+                const sRef = doc(db, "stocks", stockRecord.id);
+                transaction.update(sRef, {
+                    quantity: stockRecord.quantity - takeQty,
+                    updated_at: serverTimestamp(),
+                });
+                remainingToDeduct -= takeQty;
+            }
+        } else {
+            // Original adjustment deducted stock.
+            // Deleting it means we must restore (add back) quantityToRevert to stocks!
+            const now = new Date();
+            const costValue = movementData.unit_cost !== undefined && movementData.unit_cost !== null
+                ? Number(movementData.unit_cost)
+                : (productData?.cost || productData?.cost_recommand || 0);
+
+            const newStockRef = doc(collection(db, "stocks"));
+            transaction.set(newStockRef, {
+                product_id: productId,
+                product_barcode: productData?.barcode || movementData.product_barcode || "",
+                warehouse_id: warehouseId,
+                product: productData ? { ...productData, id: productId } : { name: movementData.product_name || "Product", barcode: movementData.product_barcode || "" },
+                cost: costValue,
+                quantity: quantityToRevert,
+                date: Timestamp.fromDate(now),
+                is_archived: false,
+                created_by: userContext?.id || "Admin",
+                created_by_name: userContext?.name || "Admin",
+                created_at: serverTimestamp(),
+            });
+        }
+
+        // Delete the adjustment movement doc
+        transaction.delete(movementRef);
+
+        return {
+            success: true,
+            isUp,
+            quantity: quantityToRevert,
+            productName: productData?.name || movementData.product_name || "Product",
+        };
+    });
+}
+
+
